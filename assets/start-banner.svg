@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 450 116" width="100%" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <style type="text/css"><![CDATA[
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+      
+      .title {
+        font-family: 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', sans-serif;
+        font-weight: 700;
+        font-size: 26px;
+        fill: #212121;
+        letter-spacing: 0.01em;
+        filter: drop-shadow(1px 1px 0 rgba(0,0,0,0.15));
+      }
+      
+      .subtitle {
+        font-family: 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', sans-serif;
+        font-weight: 500;
+        font-size: 11px;
+        fill: #999999;
+        letter-spacing: 0.02em;
+      }
+    ]]></style>
+  </defs>
+  
+  <!-- 背景：白 -->
+  <rect x="0" y="0" width="450" height="116" fill="#FFFFFF"/>
+  
+  <!-- メインタイトル -->
+  <text x="20" y="42" class="title">
+    健全なバカレシピ展応援げーむ
+  </text>
+  
+  <!-- サブタイトル -->
+  <text x="20" y="66" class="subtitle">
+    B級フード研究家・野島慎一郎さんのファンが作ったげーむ
+  </text>
+  
+  <!-- 下部：細い赤帯 -->
+  <rect x="0" y="108" width="450" height="4" fill="#BB4446"/>
+</svg>

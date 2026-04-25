@@ -1,0 +1,81 @@
+[
+  {
+    "badgeId": 1,
+    "name": "どん二郎",
+    "nameImage": "./assets/menu/don-jiro-name.png",
+    "url": "https://youtube.com/shorts/dlGHG1NzumA",
+    "linkLabel": "動画を見る"
+  },
+  {
+    "badgeId": 2,
+    "name": "どん兵衛グラタン",
+    "nameImage": "./assets/menu/donbei-gratin-name.png",
+    "url": "https://youtube.com/shorts/WD1oIP_Iys0",
+    "linkLabel": "動画を見る"
+  },
+  {
+    "badgeId": 3,
+    "name": "うまい棒カレーヌードル",
+    "nameImage": "./assets/menu/umaibo-curry-noodle-name.png",
+    "url": "https://youtu.be/qVClFJPuUVo",
+    "linkLabel": "動画を見る"
+  },
+  {
+    "badgeId": 4,
+    "name": "ゲルそば",
+    "nameImage": "./assets/menu/gel-soba-name.png",
+    "url": "https://wpb.shueisha.co.jp/news/lifestyle/20250411-126591/",
+    "linkLabel": "週プレで読む"
+  },
+  {
+    "badgeId": 5,
+    "name": "焼きうまい棒",
+    "nameImage": "./assets/menu/yaki-umaibo-name.png",
+    "url": "https://youtube.com/shorts/tKX_OedKzfI",
+    "linkLabel": "動画を見る"
+  },
+  {
+    "badgeId": 6,
+    "name": "ブレスケアモヒート",
+    "nameImage": "./assets/menu/breath-care-mojito-name.png",
+    "url": "https://wpb.shueisha.co.jp/news/lifestyle/20241011-124736/",
+    "linkLabel": "週プレで読む"
+  },
+  {
+    "badgeId": 7,
+    "name": "スタバチキンラーメン",
+    "nameImage": "./assets/menu/starba-chicken-ramen-name.png",
+    "url": "https://wpb.shueisha.co.jp/news/lifestyle/20190215-108174/",
+    "linkLabel": "週プレで読む"
+  },
+  {
+    "badgeId": 8,
+    "name": "じゃがりこミロスティック",
+    "nameImage": "./assets/menu/jagariko-milo-stick-name.png",
+    "url": "https://wpb.shueisha.co.jp/news/lifestyle/20250502-126854/",
+    "linkLabel": "週プレで読む"
+  },
+  {
+    "badgeId": 9,
+    "name": "金玉",
+    "nameImage": "./assets/menu/kintama-name.png",
+    "url": "https://wpb.shueisha.co.jp/news/lifestyle/20220708-116745/",
+    "linkLabel": "週プレで読む"
+  },
+  {
+    "badgeId": 10,
+    "name": "ペヤング肉ハンバーグ",
+    "nameImage": "./assets/menu/peyang-niku-hamburg-name.png",
+    "url": "https://www.youtube.com/@nojimachannel/search?query=ペヤング",
+    "linkLabel": "動画を見る"
+  },
+  {
+    "badgeId": 11,
+    "name": "シークレット",
+    "isSecret": true,
+    "displayImage": "./assets/menu/secret-kiyose.png",
+    "nameImage": "./assets/menu/secret-kiyose-name.png",
+    "url": "https://www.city.kiyose.lg.jp/opendata/opendata/opendataichiran/1001616.html",
+    "credit": "画像出典：「清瀬ひまわりフェスティバル1」（清瀬市）を加工して作成"
+  }
+]
