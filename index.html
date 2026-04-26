@@ -3916,7 +3916,17 @@
           rankingNamedCount = 0;
           rankingExhausted = false;
         }
-        if (rankingExhausted) return [];
+        // Firestore は読み切ったが、内部 fetch ループで「次ページ分」まで先読みされている
+        // ことがある（例：1 ページ目を埋めるため名前付き 100 件を集める途中で名無しが混ざり、
+        // 107 件全件読み込んだが画面には 100 件しか出していない、というケース）。
+        // その場合は新規 fetch せずにページだけ進めて、既読データから表示を拡張する。
+        if (rankingExhausted) {
+          const currentCap = rankingCurrentPage * RANKING_PAGE_SIZE;
+          if (rankingNamedCount > currentCap && rankingCurrentPage < RANKING_MAX_PAGES) {
+            rankingCurrentPage += 1;
+          }
+          return [];
+        }
 
         // 今回のページ読了後に必要な「名前付き累計件数」
         const targetNamed = (rankingCurrentPage + 1) * RANKING_PAGE_SIZE;
@@ -4283,11 +4293,17 @@
       // 次ページ（= 次の 100 名分）が存在するか判定。
       //   - 既に rankingAllLoaded 中に「次ページ分の名前付き」を蓄えている → 即座に存在
       //   - まだ無いが Firestore ソースが尽きてない → 存在（fetch すれば取れる可能性）
+      //   - 「全部読み切ったが現ページの cap を超える名前付きがすでに loaded」 → 存在（再描画で出せる）
       //   - 上記いずれでもない → 無し
       function hasNextRankingPage() {
         if (rankingCurrentPage >= RANKING_MAX_PAGES) return false;
         const requiredNamed = (rankingCurrentPage + 1) * RANKING_PAGE_SIZE;
         if (rankingNamedCount >= requiredNamed) return true;
+        // 既読の名前付きが現ページ表示分(cap)を超えている → まだ表示していない件があるので次ページあり。
+        // これがないと「Firestore に 107 件、内部 fetch で全件読み込み済み、でも cap=100 で画面は
+        // 100 件しか出してない」ケースで「もっと見る」が出ず 101-107 位が永久に隠れてしまう。
+        const currentCap = rankingCurrentPage * RANKING_PAGE_SIZE;
+        if (rankingNamedCount > currentCap) return true;
         return !rankingExhausted;
       }
 
@@ -4301,7 +4317,12 @@
           btnEl.style.display = "";
           btnEl.disabled = false;
           const nextStart = rankingCurrentPage * RANKING_PAGE_SIZE + 1;
-          const nextEnd = (rankingCurrentPage + 1) * RANKING_PAGE_SIZE;
+          const nextEndIdeal = (rankingCurrentPage + 1) * RANKING_PAGE_SIZE;
+          // Firestore を読み切った状態で表示残件が確定しているなら、
+          // 「101-200位を見る」ではなく実件数の「101-107位を見る」にして期待値を正しく伝える。
+          const nextEnd = (rankingExhausted && rankingNamedCount < nextEndIdeal)
+            ? rankingNamedCount
+            : nextEndIdeal;
           btnEl.textContent = `📋 ${nextStart}-${nextEnd}位を見る`;
           return;
         }
