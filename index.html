@@ -2318,14 +2318,27 @@
         margin-bottom: 6px;
         min-height: 16px;
       }
+      /* OL とロードモアを同一スクロール領域に入れるラッパー。
+         旧仕様: OL 自体が overflow:auto で、ボタンは OL 外（flex 列の末尾）。
+                  → モバイル Safari で sticky フッターがボタンを覆う / レイアウト計算で
+                    ボタンが画面外に押し出される事象が発生した。
+         新仕様: ラッパーが flex:1 1 auto + overflow:auto。OL とボタンが一緒にスクロール
+                  し、リスト末尾までスクロールすると自然にボタンが見える。
+         */
+      .ranking-scroll-area {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        display: flex;
+        flex-direction: column;
+        padding: 4px 2px 4px 2px;
+      }
       .ranking-full-list {
         list-style: none;
         margin: 0;
-        padding: 4px 2px 4px 2px;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        flex: 1 1 auto;
-        min-height: 0;
+        padding: 0;
+        flex: 0 0 auto;
       }
       .ranking-full-list li {
         display: grid;
@@ -2391,9 +2404,10 @@
       }
 
       /* ── 「もっと見る」ボタン（TOP100 → 200 → 300 のページング用） ── */
+      /* スクロール領域内、リストの直下に常駐。スクロール末尾に必ず姿を現す。 */
       .load-more-btn {
         display: block;
-        margin: 8px auto 6px;
+        margin: 10px auto 6px;
         padding: 10px 22px;
         appearance: none;
         border: 1px solid rgba(255, 215, 0, 0.7);
@@ -2406,7 +2420,10 @@
         letter-spacing: 0.04em;
         transition: transform 0.15s ease, background 0.18s ease, color 0.18s ease;
         flex-shrink: 0;
-        min-height: 38px;
+        min-height: 40px;
+        position: relative;
+        z-index: 1;
+        align-self: center;
       }
       .load-more-btn:hover,
       .load-more-btn:active {
@@ -2774,8 +2791,12 @@
           🎮 これまでに <strong><span class="play-count-num">—</span></strong> 回プレイされました
         </div>
         <div id="fullRankingStatus" class="ranking-status"></div>
-        <ol id="fullRankingList" class="ranking-full-list"></ol>
-        <button id="loadMoreBtn" class="load-more-btn" type="button" style="display:none;">📋 101-200位を見る</button>
+        <!-- OL とロードモアを同一スクロール領域に。リスト末尾までスクロールするとボタンが現れる UX。
+             モバイル Safari の sticky フッター（backdrop-filter）がボタンを隠す問題を回避できる。 -->
+        <div class="ranking-scroll-area">
+          <ol id="fullRankingList" class="ranking-full-list"></ol>
+          <button id="loadMoreBtn" class="load-more-btn" type="button" style="display:none;">📋 101-200位を見る</button>
+        </div>
         <div id="userRankFooter" class="user-rank-footer" aria-live="polite"></div>
       </div>
     </div>
@@ -4271,17 +4292,28 @@
       }
 
       // 「もっと見る」ボタンの表示制御。
+      //   次ページあり → "📋 101-200位を見る" 等を表示・有効化
+      //   全件表示済み → "✅ 全件表示済み（X名）" を無効化して残置（消えると不安になるので）
+      //   一度も読み込んでない → 非表示
       function updateLoadMoreButton(btnEl) {
         if (!btnEl) return;
-        if (!hasNextRankingPage()) {
-          btnEl.style.display = "none";
+        if (hasNextRankingPage()) {
+          btnEl.style.display = "";
+          btnEl.disabled = false;
+          const nextStart = rankingCurrentPage * RANKING_PAGE_SIZE + 1;
+          const nextEnd = (rankingCurrentPage + 1) * RANKING_PAGE_SIZE;
+          btnEl.textContent = `📋 ${nextStart}-${nextEnd}位を見る`;
           return;
         }
-        btnEl.style.display = "";
-        btnEl.disabled = false;
-        const nextStart = rankingCurrentPage * RANKING_PAGE_SIZE + 1;
-        const nextEnd = (rankingCurrentPage + 1) * RANKING_PAGE_SIZE;
-        btnEl.textContent = `📋 ${nextStart}-${nextEnd}位を見る`;
+        // 全件読み込み済み：1 ページ以上読んでいれば「全件表示済み」を残す。
+        // まだ何も読み込んでいない（= rankingCurrentPage === 0）なら非表示。
+        if (rankingCurrentPage >= 1 && rankingNamedCount > 0) {
+          btnEl.style.display = "";
+          btnEl.disabled = true;
+          btnEl.textContent = `✅ 全 ${rankingNamedCount} 名を表示中`;
+        } else {
+          btnEl.style.display = "none";
+        }
       }
 
       // 「もっと見る」クリック：次ページ分の名前付きを Firestore から確保して追記再描画。
