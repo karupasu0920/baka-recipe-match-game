@@ -1871,6 +1871,17 @@
         }
       }
 
+      /* v8.8 (2026-04-27)：右下ボタン群が左下「💫 ゲームを紹介」と衝突する画面幅で縦並びに切り替え。
+         3 ボタン横並びの必要画面幅 ~490px を実測したため、安全マージンを取って 500px を境界値に設定。
+         column-reverse を使うことで HTML 順「ガイド → クレジット」を表示順「クレジット 上 / ガイド 下」に
+         反転し、HTML 構造変更なしで仕様（クレジットを上に）を実現する。 */
+      @media (max-width: 500px) {
+        .bottom-right-buttons {
+          flex-direction: column-reverse;
+          align-items: flex-end;
+        }
+      }
+
       /* ── 𝕏（旧 Twitter）ゲームを紹介ボタン：左下追随 ──
          野島さん実機フィードバック v4（2026-04-25）：
          右下の クレジット／ガイドと左右対称に固定配置。
@@ -2584,12 +2595,21 @@
         transform: none;
       }
 
-      /* ── 自分の順位フッター（モーダル下部に常に表示、スクロールしても見える） ── */
+      /* ── 自分の順位フッター（モーダル下部に常に表示、スクロールしても見える） ──
+         v8.3 (2026-04-27)：下端装飾（負マージン/safe-area-inset/border-radius bottom）を
+         直下の #badge-container-ranking に移譲。footer 自体はテキスト枠としてフラットに振る舞う。 */
       .user-rank-footer {
         position: sticky;
         bottom: 0;
-        margin: 0 -2px -4px;
-        padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+        /* v8.6 (2026-04-27)：リスト末端と footer の "外側" 余白を確保（PC 12px / mobile 10px）。
+           v8.5 の padding-top 12px は内側テキスト余白として維持。両者で「リスト→外側余白→
+           黄色 border-top→内側余白→テキスト」の自然な縦リズムを作る。
+           sticky bottom: 0 の貼り付きには影響しないが、scroll-area は flex 計算で
+           margin-top ぶん（PC 12px / mobile 10px）縮む（許容リスク）。 */
+        margin: 12px -2px 0;
+        /* v8.5 (2026-04-27)：リスト末端と footer 上端の視覚的余白を +2px 確保
+           （PC・モバイル共に padding-top 10→12px。max-height/flex/sticky 系は不変、最小修正）。 */
+        padding: 12px 14px 10px;
         background: rgba(26, 26, 26, 0.96);
         border-top: 2px solid #F5C500;
         backdrop-filter: blur(8px);
@@ -2597,7 +2617,7 @@
         color: #fff;
         font-size: clamp(12px, 1.5vw, 14px);
         text-align: center;
-        border-radius: 0 0 12px 12px;
+        border-radius: 0;
         min-height: 0;
       }
       .user-rank-footer:empty {
@@ -2615,6 +2635,66 @@
       }
       .user-rank-footer .urf-muted {
         color: rgba(255,255,255,0.6);
+      }
+
+      /* ── 称号バッジ表示（v7 / 2026-04-27） ──
+         スタート画面（GAME START 直下）と TOP100 モーダル（自分の順位フッター内）の2箇所に
+         獲得済み称号を絵文字で表示。flex + order で「中央=最難 → 外側=最易」を実現する。
+         未獲得バッジは display:none、獲得 0 個時は親 .badge-container ごと is-empty で畳む
+         （仕様：「0個獲得時は何も表示しない（空白スペースもなし）」）。 */
+      .badge-container {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        font-size: clamp(20px, 2.4vw, 26px);
+        line-height: 1;
+      }
+      .badge-container.is-empty { display: none; }
+      .badge-container .badge-emoji {
+        display: none;
+        filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
+        user-select: none;
+        /* v8.7 (2026-04-27)：line-height を親の 1 → 1.2 に上書き。
+           絵文字グリフが行ボックス上下に飛び出して隣接要素と visual overlap する
+           OS/ブラウザ依存の事故を構造的に抑える保険（macOS/iOS Safari Color Emoji 等）。 */
+        line-height: 1.2;
+      }
+      .badge-container .badge-emoji.is-earned { display: inline-block; }
+      /* スタート画面：GAME START 直下、控えめな上マージンで主張しすぎない。
+         v8.4 (2026-04-27)：散らし缶バッジ装飾（.scattered-badges z-index:8）の上に出るよう
+         position: relative + z-index: 16（startBtn と同レイヤー）を付与。装飾は pointer-events:none
+         なのでバッジ自体のクリック干渉は無し。 */
+      #badge-container-start {
+        position: relative;
+        z-index: 16;
+        margin: 6px auto 0;
+        max-width: min(380px, 92vw);
+      }
+      /* TOP100 モーダル：v8.3 (2026-04-27) で footer "後" に配置。
+         flex item として natural height を取り shrink しない。
+         さらに footer の旧 bottom 装飾（負マージン -4px / safe-area-inset / border-radius bottom /
+         背景 / blur）を全部このバッジ枠に移譲して、modal 下端の「ひとまとまり感」を担う。
+         v8.7 (2026-04-27)：margin-top 0→8px（mobile は媒体クエリで 6px）。
+           絵文字グリフが行ボックス上方に飛び出して footer テキストと visual overlap する事故対策。
+           論理隙間 14px（footer padding-bottom 10 + badge padding-top 4）→ 22px に拡張。 */
+      .ranking-modal > #badge-container-ranking {
+        flex: 0 0 auto;
+        background: rgba(26, 26, 26, 0.96);
+        margin: 8px -2px -4px;
+        padding: 4px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border-radius: 0 0 12px 12px;
+      }
+      @media (max-width: 768px) {
+        /* v8.2 (2026-04-27)：モバイル絵文字を 22px→20px、padding 4px→2px に縮小。
+           モーダル下端の見切れリスクを下げ、リスト可視領域を 6〜8px 回復する。 */
+        .badge-container { font-size: clamp(16px, 4.6vw, 20px); gap: 4px; padding: 2px 6px; }
+        /* v8.7 (2026-04-27)：モバイルは margin-top を 8→6px に下げて scroll-area 縮小幅を抑える。 */
+        .ranking-modal > #badge-container-ranking { margin-top: 6px; }
       }
 
       /* ── 累計プレイ数カウンター（TOP ランキング欄の下） ── */
@@ -2661,6 +2741,11 @@
           grid-template-columns: 36px 1fr auto;
           gap: 6px;
           padding: 8px 8px;
+        }
+        /* v8.6 (2026-04-27)：モバイルは margin-top を 12→10px に下げて
+           scroll-area の縮小幅を 2px 抑える（小画面で 1 行ぶんを稼ぐ）。 */
+        .user-rank-footer {
+          margin-top: 10px;
         }
       }
 
@@ -2818,6 +2903,8 @@
           <img src="./assets/Title.png?v=20260425c" alt="バカレシピ応援ゲーム" class="title-image" />
           <p class="title-sub">〜缶バッジペア消し〜</p>
           <button id="startBtn">GAME START</button>
+          <!-- v7 (2026-04-27)：獲得済み称号バッジ。Achievements.renderInto() が描画するまで is-empty で空白を出さない。 -->
+          <div id="badge-container-start" class="badge-container is-empty" aria-label="獲得した称号バッジ"></div>
         </div>
 
         <div class="audio-settings panel" id="startAudioSettings">
@@ -2944,7 +3031,18 @@
           <ol id="fullRankingList" class="ranking-full-list"></ol>
           <button id="loadMoreBtn" class="load-more-btn" type="button" style="display:none;">📋 101-200位を見る</button>
         </div>
-        <div id="userRankFooter" class="user-rank-footer" aria-live="polite"></div>
+        <!-- v7 (2026-04-27)：footer を「テキスト用 .urf-text」子要素構造に変更。
+             renderUserRankFooter は .urf-text のみ書き換える（footer.innerHTML 直書きから移行）。 -->
+        <div id="userRankFooter" class="user-rank-footer" aria-live="polite">
+          <div class="urf-text"></div>
+        </div>
+        <!-- v8.3 (2026-04-27)：バッジを footer の "後" に配置（テキスト → バッジの読み順）。
+             理由：「タイム → そのタイムで獲得した称号」の視線移動と一致させるため。
+             v8.2 までは footer の "前" だったがユーザー指摘で位置反転。
+             footer の bottom 装飾（rounded corners + safe-area-inset）はこのバッジ枠に移譲してあり、
+             両方が modal 下端で連続したまとまりに見える。
+             非表示制御：renderUserRankFooter が renderInto(badgeC, null) を呼ぶことで is-empty 化。 -->
+        <div id="badge-container-ranking" class="badge-container is-empty" aria-label="獲得した称号バッジ"></div>
       </div>
     </div>
 
@@ -3374,7 +3472,11 @@
         rankingDaily: "bakaBadge_ranking_daily",
         dailyPlayedDate: "bakaBadge_daily_played_date",
         myBestEntry: "bakaBadge_my_best_entry", // 自分の歴代ベスト1件（id, name, time, rank, date, mode）
+        userUuid: "bakaBadge_user_uuid",        // v9 (2026-04-27)：このブラウザ固有の UUID（バッジ識別の核）
       };
+      // v8 (2026-04-27)：以前 (v7) は 'bakaBadge_achieved_titles' に獲得済み tier 配列を保存していたが、
+      //   ranking 配列上の自分のエントリのベストタイムから動的算出する方式に変更したため未使用化。
+      //   既存ユーザーの localStorage に残骸があっても read していないので無視される（後方互換用の削除コード不要）。
 
       // ── 画像キャッシュバスター ────────────────────────────────────────
       //   画像を上書き更新した際、この値を更新して git push すれば全ユーザーに強制反映される。
@@ -3997,6 +4099,44 @@
         try { return localStorage.getItem(key); } catch (_) { return null; }
       }
 
+      // ── ユーザー固有 UUID（v9 / 2026-04-27）──
+      //   このブラウザ・端末を識別する無記名スタンプ（ログインではない）。称号バッジの「自分」判定に使う。
+      //     - 初回呼び出し時に生成、localStorage に保存
+      //     - 2 回目以降は読み出して使い回し
+      //     - プライベートモード等で localStorage 失敗時はセッション内キャッシュで継続
+      //     - 別ブラウザ／別端末／履歴削除後は別 UUID（仕様上許容）
+      //   モダンブラウザ（iOS Safari 15.4+ / Android Chrome 92+）は crypto.randomUUID 標準対応。
+      //   旧環境向けに UUIDv4 風 fallback（Math.random ベース、暗号強度は不要なので可）。
+      let _cachedUserUuid = null;
+      function getOrCreateUserUuid() {
+        if (_cachedUserUuid) return _cachedUserUuid;
+        const stored = lsGet(LS_KEYS.userUuid);
+        if (stored && typeof stored === 'string' && stored.length >= 8) {
+          _cachedUserUuid = stored;
+          return stored;
+        }
+        let uuid;
+        try {
+          if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+            uuid = crypto.randomUUID();
+          } else {
+            uuid = _uuidV4Fallback();
+          }
+        } catch (_) {
+          uuid = _uuidV4Fallback();
+        }
+        _cachedUserUuid = uuid;
+        lsSet(LS_KEYS.userUuid, uuid);
+        return uuid;
+      }
+      function _uuidV4Fallback() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0;
+          const v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+      }
+
       // ── 自分のベスト記録 1 件を localStorage に保持（ページをまたいでもハイライト／順位表示に使う） ──
       function loadMyBestEntry() {
         try {
@@ -4068,6 +4208,32 @@
           return snap.docs.map(d => d.data());
         } catch (e) {
           console.warn("Firestore load failed:", e);
+          return null;
+        }
+      }
+
+      // v9 (2026-04-27)：スタート画面の称号バッジ用に「自分のエントリ群を UUID 一致で取得し、最速を返す」。
+      //   v8.3 までは id→name→time のフォールバックチェーンだったが、同名他人混同・id 失効・time 衝突等の
+      //   構造リスクを抱えていたため、v9 で UUID 完全一致 1 段に置換。
+      //   - 「自分」の判定: localStorage の UUID と Firestore の uuid フィールドの完全一致のみ
+      //   - 過去エントリ（uuid 無し）は対象外（仕様：割り切り、Case D）
+      //   - UUID 一致した複数エントリの中で**最速タイム**を返す（Case E：v9 リリース後の自己ベストでバッジ算出）
+      //   - composite index 不要：where("uuid") は単一フィールド索引（Firestore デフォルト）で動く
+      //   - 読み取り増分: 1 セッションあたり +1〜N doc（N = この uuid で記録した回数、通常 1〜数件）
+      async function fetchMyBestEntryFromCloud() {
+        const myUuid = getOrCreateUserUuid();
+        if (!myUuid) return null;
+        try {
+          const snap = await db.collection("rankings")
+            .where("uuid", "==", myUuid)
+            .get();
+          if (snap.empty) return null;
+          // UUID 一致した全エントリの中で最速のものを返す（バッジソース = 自己ベスト）
+          const entries = snap.docs.map(d => d.data())
+            .filter(d => d && typeof d.time === 'number')
+            .sort((a, b) => a.time - b.time);
+          return entries[0] || null;
+        } catch (_) {
           return null;
         }
       }
@@ -4383,6 +4549,106 @@
         }
       };
 
+      // v9.5 (2026-04-27)：バッジ用スナップショット作成 admin helper（一回限り実行用）
+      //   F12 コンソールから手動実行する。dry-run でプレビュー → 本実行の二段構え。
+      //
+      //   使い方:
+      //     await __createBadgeSnapshot({ dryRun: true });   // プレビュー（書き込みなし）
+      //     await __createBadgeSnapshot();                    // 本実行（top 130 を snapshot に書き込み）
+      //
+      //   挙動:
+      //     1. rankings から time 昇順で fetch（必要なら複数バッチ）
+      //     2. 名無し除外 + getEntryUniqueKey（name+rank+device）で dedup（UI と同一ロジック）
+      //     3. 上位 130 件を取得（現状ユニーク 118 名 + 余裕 12 名分）
+      //     4. dryRun=false なら ranking_snapshot_pre_v9_5 に各 entry をコピー（doc id = 元 entry.id）
+      //     5. 各 entry に _snapshotAt フィールド付与（ISO タイムスタンプ）
+      //
+      //   コスト: read ~130-300 doc + write 130 doc ≈ ¥0.0003 程度
+      //   再実行: doc id 同じなら上書き（べき等）
+      window.__createBadgeSnapshot = async function ({ dryRun = false } = {}) {
+        const TARGET_UNIQUE = 130;
+        const FETCH_BATCH = 100;
+        const MAX_FETCH = 3000;
+        const SNAPSHOT_COLLECTION = "ranking_snapshot_pre_v9_5";
+
+        console.group(`📸 v9.5 バッジスナップショット作成 ${dryRun ? "[DRY-RUN]" : "[本実行]"}`);
+        try {
+          // ── Step 1: fetch loop ──────────────────────────────────────
+          let lastDoc = null;
+          let allRaw = [];
+          const dedupKeys = new Set();
+          let fetched = 0;
+
+          console.log("🔍 Firestore から fetch 開始…");
+          while (true) {
+            let q = db.collection("rankings").orderBy("time", "asc").limit(FETCH_BATCH);
+            if (lastDoc) q = q.startAfter(lastDoc);
+            const snap = await q.get();
+            if (snap.empty) {
+              console.log("📭 Firestore 読み切り（これ以上 entry なし）");
+              break;
+            }
+            lastDoc = snap.docs[snap.docs.length - 1];
+            const batch = snap.docs.map(d => d.data());
+            allRaw = allRaw.concat(batch);
+            for (const data of batch) {
+              if (!isNamedEntry(data)) continue;
+              dedupKeys.add(getEntryUniqueKey(data));
+            }
+            fetched += batch.length;
+            console.log(`📊 fetched=${fetched}, unique(dedup)=${dedupKeys.size}`);
+
+            if (dedupKeys.size >= TARGET_UNIQUE) {
+              console.log(`✅ ユニーク ${TARGET_UNIQUE} 件確保、fetch 終了`);
+              break;
+            }
+            if (fetched >= MAX_FETCH) {
+              console.warn(`⚠️ MAX_FETCH=${MAX_FETCH} 到達、fetch 強制終了`);
+              break;
+            }
+          }
+
+          // ── Step 2: dedup + top N ───────────────────────────────
+          const named = allRaw.filter(e => (e && e.name || "").trim() !== "名無しのプレイヤー");
+          const deduped = deduplicateRankings(named); // time 昇順 sorted
+          const top = deduped.slice(0, TARGET_UNIQUE);
+          console.log(`🏆 dedup 後ユニーク=${deduped.length}, snapshot 対象=${top.length}`);
+          console.log(`📋 サンプル先頭 3 件:`, top.slice(0, 3));
+          console.log(`📋 サンプル末尾 3 件:`, top.slice(-3));
+
+          // ── Step 3: dry-run ならここで終了 ─────────────────────────
+          if (dryRun) {
+            console.log("🟡 DRY-RUN モード：書き込みはスキップしました。");
+            console.log(`👉 本実行するには: await __createBadgeSnapshot();`);
+            return { dryRun: true, count: top.length, sample: top.slice(0, 3) };
+          }
+
+          // ── Step 4: snapshot コレクションへ書き込み ────────────────
+          const snapshotAt = new Date().toISOString();
+          let written = 0;
+          for (let i = 0; i < top.length; i += 500) {
+            const batch = db.batch();
+            const chunk = top.slice(i, i + 500);
+            chunk.forEach(entry => {
+              const ref = db.collection(SNAPSHOT_COLLECTION).doc(entry.id);
+              batch.set(ref, { ...entry, _snapshotAt: snapshotAt });
+            });
+            await batch.commit();
+            written += chunk.length;
+            console.log(`✅ written=${written}/${top.length}`);
+          }
+
+          console.log(`🎉 完了: ${written} 件を ${SNAPSHOT_COLLECTION} に書き込み済み (snapshotAt=${snapshotAt})`);
+          console.log(`🔍 確認: db.collection("${SNAPSHOT_COLLECTION}").get().then(s => console.log(s.size + ' docs'))`);
+          return { dryRun: false, count: written, snapshotAt };
+        } catch (e) {
+          console.error("❌ snapshot 作成失敗:", e);
+          throw e;
+        } finally {
+          console.groupEnd();
+        }
+      };
+
       // ── ランキング表示（Firestore優先、失敗時はlocalStorage） ──────────
       // entry._pos が与えられていればその全体順位を用いる（名無し除外後の見た目順位ではない）
       function renderRankItem(entry, idx) {
@@ -4406,6 +4672,13 @@
       }
 
       async function renderStartRanking() {
+        // v8 (2026-04-27)：v7 で関数冒頭に置いた localStorage 由来のバッジ描画は廃止。
+        //   バッジは ranking 配列構築後（named）に「自分のエントリの time」から動的算出する。
+        //   ローディング中・記録ゼロ・自分のエントリ非存在のいずれでもバッジ非表示が正解（仕様準拠）。
+        const badgeC = document.getElementById('badge-container-start');
+        // ローディング中はバッジを明示的に非表示（前回描画の残像対策）
+        try { if (badgeC) Achievements.renderInto(badgeC, null); } catch (_) { /* noop */ }
+
         startRankList.innerHTML = "";
         // 読み込み中表示
         const loading = document.createElement("li");
@@ -4417,7 +4690,14 @@
         // Firestore から取得（失敗時は localStorage）。名無し除外＋重複削除を経るので
         // 元データは多めに取る。上位を常連プレイヤーが連投で占めるケース
         // （名前付き 100 件→ユニーク 6 名）でも TOP5/8 表示を埋められるよう 200 件確保。
-        let list = await loadRankingCloud(200);
+        // v8.3 (2026-04-27)：バッジ用に「自分のエントリ 1 件」も並列で fetch。
+        //   旧仕様は named 配列から findMyTimeIn で探していたが、上位 200 raw 内に自分が居ないと
+        //   永遠に未表示になる事故があったため、順位無関係に取れる別経路に切り替え。
+        const [listOrNull, myCloudEntry] = await Promise.all([
+          loadRankingCloud(200),
+          fetchMyBestEntryFromCloud(),
+        ]);
+        let list = listOrNull;
         if (!list) list = loadRanking("normal");
         if (!Array.isArray(list)) list = [];
 
@@ -4425,6 +4705,17 @@
         const filtered = list.filter(e => (e && e.name || "").trim() !== "名無しのプレイヤー");
         const deduped = deduplicateRankings(filtered);
         const named = deduped.map((e, i) => ({ ...e, _pos: i + 1 }));
+
+        // v8.3 (2026-04-27)：バッジは myCloudEntry（自分専用クエリ）の time から決める。
+        //   - myCloudEntry 取得成功 → 順位無関係にバッジ表示（rank 68 でも 500+ でも OK）
+        //   - 取得失敗（未登録 / クエリエラー / id&name 両方ヒットせず） → null → is-empty で非表示
+        //   - named 配列内 findMyTimeIn は使わない（rank 200 圏外で永遠に出ない事故の回避が目的）
+        try {
+          const myTimeForBadge = (myCloudEntry && typeof myCloudEntry.time === 'number')
+            ? myCloudEntry.time
+            : null;
+          if (badgeC) Achievements.renderInto(badgeC, myTimeForBadge);
+        } catch (_) { /* noop（描画失敗でランキング表示は止めない） */ }
 
         // ファーストビュー対策：モバイルは件数を絞ってボタンがスクロールなしで見えるように
         const isMobileNow = window.innerWidth < 768;
@@ -4485,22 +4776,31 @@
       // ── 自分の順位フッター描画 ──────────────────────────────────────
       //   設計方針：
       //     画面に映っているランキング（top100Filtered = 名無し除外済み・time 昇順・_pos 付与）
-      //     を「真実」とし、その中で「同一ユーザーの最高位」を見つけて表示する。
+      //     を「真実」とし、その中で「自分のエントリ」を UUID 完全一致で見つけて表示する。
       //
-      //   「同一ユーザー」の特定（信頼度の高い順）：
-      //     1) id 完全一致（auto_ 系を除く正式 id） — 「記録する」を押した本人の同セッション内
-      //     2) name 完全一致（最初にヒット = time 昇順で並んでいるので最高位） — 同名は同一視
-      //     3) タイム完全一致 — 名無しの過去自動保存などのフォールバック
+      //   v9 (2026-04-27)：UUID 完全一致 1 段に統一。v8.x までの id→name→time フォールバック
+      //     チェーンは同名他人混同のリスクがあったため廃止。top100Filtered は time 昇順なので
+      //     find 最初のヒット = 自分のベストタイム行（最高位）。
       //
-      //   いずれも見つからなければ「画面ランキング内で自分のタイムより速い件数 + 1」を仮順位として出す。
-      //   （= 画面に映っているランキングと完全に整合する推定順位）
+      //   見つからなければ（uuid 無し既存登録者 / ranking に居ない / ranking 未取得）→
+      //     「画面ランキング内で自分のローカルベストより速い件数 + 1」を仮順位として出す。
       async function renderUserRankFooter(footerEl, top100Filtered) {
         if (!footerEl) return;
+        // v7 (2026-04-27)：footer を「.urf-text」子要素構造に変更したため、テキスト書き換え先を urfText に集約。
+        //   footer 直下の innerHTML 直書きは .urf-text を消すので不可。旧構造（urfText 不在）への保険として
+        //   footerEl 自体にフォールバック。
+        // v8.2 (2026-04-27)：バッジ枠 #badge-container-ranking は footer の外（兄弟要素）へ移動したため、
+        //   document.getElementById で文書全体から取得（旧 footer 内 querySelector でも同じ要素を指す）。
+        const urfText = footerEl.querySelector('.urf-text') || footerEl;
+        const badgeC  = document.getElementById('badge-container-ranking');
+
         const mine = loadMyBestEntry();
         // ランキング未登録ユーザー（初回 / プレイのみで「記録する」未押下）には
         // フッターごと非表示。プレイ動機を高めるため、ノイズを減らす。
         if (!isUserRegistered() || !mine || typeof mine.time !== "number") {
-          footerEl.innerHTML = "";
+          urfText.innerHTML = "";
+          // v8 (2026-04-27)：footer 全体非表示で間接的に隠れるが、念のため明示的に is-empty も付与
+          if (badgeC) Achievements.renderInto(badgeC, null);
           footerEl.style.display = "none";
           return;
         }
@@ -4511,22 +4811,14 @@
           ? `<span class="device-mark" title="PCからプレイ" aria-label="PCからプレイ">🖥️</span> `
           : "";
 
-        // 1〜3) 画面ランキング中で「同一ユーザーの最高位エントリ」を探す
+        // v9 (2026-04-27)：画面ランキング中で「自分のエントリ」を UUID 完全一致で探す。
+        //   v8.x の id→name→time チェーンは同名他人混同リスクがあり廃止。
+        //   top100Filtered は time 昇順なので find 最初のヒット = 自分のベストタイム行。
         let myEntryInList = null;
         if (Array.isArray(top100Filtered) && top100Filtered.length) {
-          // 1) id 完全一致（auto_ 接頭辞は除外：Firestore に存在しないので無意味）
-          if (mine.id && !/^auto_/.test(mine.id)) {
-            myEntryInList = top100Filtered.find(e => e.id === mine.id) || null;
-          }
-          // 2) name 完全一致 → 配列は time 昇順なので最初に見つかったのが「最高位」
-          if (!myEntryInList && myName) {
-            myEntryInList = top100Filtered.find(e => ((e.name || "").trim()) === myName) || null;
-          }
-          // 3) タイム完全一致（小数誤差を考慮：0.005秒以内）
-          if (!myEntryInList) {
-            myEntryInList = top100Filtered.find(e =>
-              typeof e.time === "number" && Math.abs(e.time - mine.time) < 0.005
-            ) || null;
+          const myUuid = getOrCreateUserUuid();
+          if (myUuid) {
+            myEntryInList = top100Filtered.find(e => e && e.uuid === myUuid) || null;
           }
         }
 
@@ -4541,7 +4833,9 @@
           }
           const bestTimeText = `<span class="urf-time">${myEntryInList.time.toFixed(2)}秒</span>`;
           const labelName = myName ? `${escapeHtml(myName)} さん` : `あなた`;
-          footerEl.innerHTML = `👤 ${deviceMark}${labelName}の最高記録：<span class="urf-pos">${pos}位</span> / ${bestTimeText}`;
+          urfText.innerHTML = `👤 ${deviceMark}${labelName}の最高記録：<span class="urf-pos">${pos}位</span> / ${bestTimeText}`;
+          // v8 (2026-04-27)：フッターが命中した entry の time をバッジソースに使う（完全同期）
+          if (badgeC) Achievements.renderInto(badgeC, myEntryInList.time);
           return;
         }
 
@@ -4559,20 +4853,25 @@
           const rank = fasterCount + 1;
           // 読み込み済み件数を超える場合は「ランキング外」表示（次ページへ続く可能性）
           if (rank > top100Filtered.length) {
-            footerEl.innerHTML = `👤 ${deviceMark}あなたの最速タイム：${localTimeText}<br><span class="urf-muted">${top100Filtered.length}位以下（「もっと見る」で確認してね！）</span>`;
+            urfText.innerHTML = `👤 ${deviceMark}あなたの最速タイム：${localTimeText}<br><span class="urf-muted">${top100Filtered.length}位以下（「もっと見る」で確認してね！）</span>`;
           } else {
-            footerEl.innerHTML = `👤 ${deviceMark}あなたは <span class="urf-pos">${rank}位</span> / ${localTimeText}`;
+            urfText.innerHTML = `👤 ${deviceMark}あなたは <span class="urf-pos">${rank}位</span> / ${localTimeText}`;
           }
+          // v8 (2026-04-27)：fallback パスではフッターが mine.time を表示するのでバッジも mine.time に揃える
+          //   （仕様「フッターと表示内容が乖離してはいけない」を厳守）
+          if (badgeC) Achievements.renderInto(badgeC, mine.time);
           return;
         }
 
         // 万一画面ランキングが空（Firestore 取得失敗など）なら、最終フォールバックで集計
-        footerEl.innerHTML = `👤 ${deviceMark}あなたの最速タイム：${localTimeText}<br><span class="urf-muted">…順位を集計中…</span>`;
+        urfText.innerHTML = `👤 ${deviceMark}あなたの最速タイム：${localTimeText}<br><span class="urf-muted">…順位を集計中…</span>`;
+        // v8 (2026-04-27)：最終 fallback 系もフッターは mine.time を見せるのでバッジ同期
+        if (badgeC) Achievements.renderInto(badgeC, mine.time);
         const rank = await fetchMyGlobalRank(mine.time);
         if (Number.isFinite(rank)) {
-          footerEl.innerHTML = `👤 ${deviceMark}あなたは <span class="urf-pos">${rank}位</span> / ${localTimeText}`;
+          urfText.innerHTML = `👤 ${deviceMark}あなたは <span class="urf-pos">${rank}位</span> / ${localTimeText}`;
         } else {
-          footerEl.innerHTML = `👤 ${deviceMark}あなたの最速タイム：${localTimeText}<br><span class="urf-muted">（全体順位は取得できませんでした）</span>`;
+          urfText.innerHTML = `👤 ${deviceMark}あなたの最速タイム：${localTimeText}<br><span class="urf-muted">（全体順位は取得できませんでした）</span>`;
         }
       }
 
@@ -4681,14 +4980,27 @@
         if (!modal || !listEl) return;
 
         listEl.innerHTML = "";
-        if (footer) footer.innerHTML = "";
+        // v7 (2026-04-27)：footer 直下を innerHTML="" で消すと .urf-text が一緒に消えるためテキスト部分だけクリア。
+        //   footer 自体は明示的に display:none（旧挙動 :empty フォールバックと等価）。
+        // v8.2 (2026-04-27)：バッジ枠は footer の外に移動したため document.getElementById で取得。
+        //   ロード中は is-empty で畳み、後続 renderUserRankFooter が time に応じて再描画する。
+        if (footer) {
+          const urfText = footer.querySelector('.urf-text');
+          if (urfText) urfText.innerHTML = "";
+          footer.style.display = "none";
+        }
+        const badgeC = document.getElementById('badge-container-ranking');
+        if (badgeC) badgeC.classList.add('is-empty');
         if (moreBtn) moreBtn.style.display = "none";
         status.textContent = "読み込み中…";
         modal.classList.add("active");
 
-        // 累計プレイ数の表示を更新。モーダルを開くたびに最新値を取りに行く（forceRefresh）。
-        //   こうしておくと管理者が Firestore を削除／編集した直後にも即座に反映される。
-        refreshPlayCountUI({ forceRefresh: true }).catch(() => {});
+        // 累計プレイ数の表示を更新。
+        // v9.5 (2026-04-27)：forceRefresh: true を false に変更（Firestore reads 削減）。
+        //   旧仕様は管理者の Firestore 削除直後の即時反映のため毎回 fetch していたが、
+        //   ユーザー視点では 30 秒キャッシュ越しの表示で十分（自分のプレイ +1 はローカルキャッシュで即時反映済み）。
+        //   削減効果: TOP100 開くたび -1 read。
+        refreshPlayCountUI().catch(() => {});
 
         // 1 ページ目を取得（状態をリセット）
         const firstPage = await loadFullRankingCloud({ reset: true });
@@ -4759,6 +5071,83 @@
         if (timeSec <= 44.00) return { rank: "🧻 じゃがりこミロスティック挑戦者" };
         return { rank: "🥚 金玉マスター" };
       }
+
+      // ── 称号バッジ Achievements モジュール（v9 / 2026-04-27） ──
+      //   スタート画面と TOP100 モーダルの 2 箇所に称号バッジを絵文字で表示する。
+      //
+      //   v7 では localStorage に獲得済み tier を事前保存していたが、テストプレイ等の残骸が
+      //   残ると「現在のベストタイムから論理的に説明できない上位称号」まで表示される事故があったため、
+      //   v8 で完全に「ranking 配列上の自分のエントリのベストタイムから動的算出」方式に変更した。
+      //
+      //   v9 (2026-04-27)：「自分」の特定方法を UUID 完全一致 1 段に簡素化。
+      //     - v8.x の id→name→time フォールバックチェーンは同名他人混同のリスクがあったため廃止
+      //     - ブラウザ固有 UUID（getOrCreateUserUuid）と Firestore エントリの uuid フィールドを比較
+      //     - 過去エントリ（uuid 無し）は対象外（仕様：割り切り Case D）
+      //     - UUID 一致した複数エントリの中から最速タイムをバッジソースに採用（Case E）
+      //     - 該当エントリ無し or ranking 未取得 → null → バッジ非表示
+      //   tier は rankFromTime と完全対応（1=最難 〜 10=最易、見習いはバッジ対象外）。
+      //   配置順：CSS の order プロパティで「中央=最難、外=最易」を実現するため、tier ごとの order 値も併せ持つ。
+      //
+      //   このモジュールは tier 算出（tierFromTime）とバッジ描画（renderInto）のみを公開する。
+      //   v8 の findMyTimeIn は v9 で削除（fetchMyBestEntryFromCloud と renderUserRankFooter に集約）。
+      const Achievements = (() => {
+        const TIERS = [
+          // tier, emoji, maxTime（その tier に該当する最遅タイム）, order（CSS 配置順）
+          { tier: 1,  emoji: '🏆', maxTime: 6.00,     order: 5  },
+          { tier: 2,  emoji: '💎', maxTime: 8.00,     order: 6  },
+          { tier: 3,  emoji: '🥢', maxTime: 10.50,    order: 4  },
+          { tier: 4,  emoji: '🍜', maxTime: 13.00,    order: 7  },
+          { tier: 5,  emoji: '🔥', maxTime: 16.50,    order: 3  },
+          { tier: 6,  emoji: '🍡', maxTime: 21.00,    order: 8  },
+          { tier: 7,  emoji: '🍃', maxTime: 28.00,    order: 2  },
+          { tier: 8,  emoji: '☕', maxTime: 35.00,    order: 9  },
+          { tier: 9,  emoji: '🧻', maxTime: 44.00,    order: 1  },
+          { tier: 10, emoji: '🥚', maxTime: Infinity, order: 10 },
+        ];
+
+        function tierFromTime(timeSec) {
+          if (typeof timeSec !== 'number' || !isFinite(timeSec) || timeSec < 0) return null;
+          for (const t of TIERS) {
+            if (timeSec <= t.maxTime) return t.tier;
+          }
+          return null; // ここには来ない（最後が Infinity のため）
+        }
+
+        // v9 (2026-04-27)：v8 の findMyTimeIn 関数（id→name→time チェーン）は削除。
+        //   バッジソースとなる「自分のベストタイム」は以下から取得される：
+        //     - スタート画面: fetchMyBestEntryFromCloud（UUID 一致の Firestore クエリ + 最速採用）
+        //     - TOP100 モーダル: renderUserRankFooter で top100Filtered.find(e => e.uuid === myUuid)
+        //   いずれも Achievements.renderInto(containerEl, time) に直接 time を渡す方式。
+
+        // バッジ枠 DOM へ全 10 tier の <span> を描画。
+        //   timeSec が数値なら、その time から決まる tier 1 個だけを .is-earned にする。
+        //   下位の易しい称号も上位の難しい称号も混ぜない（v8.1：BBQ さん 11.47 秒で 7 個出ていた事故の修正）。
+        //   timeSec が null/undefined なら親に .is-empty を付けて非表示（仕様：ranking 未取得・該当無し → 非表示）。
+        function renderInto(containerEl, timeSec) {
+          if (!containerEl) return;
+          containerEl.innerHTML = '';
+          const earnedTier = (typeof timeSec === 'number') ? tierFromTime(timeSec) : null;
+          if (earnedTier == null) {
+            containerEl.classList.add('is-empty');
+            return;
+          }
+          TIERS.forEach(t => {
+            const span = document.createElement('span');
+            span.className = 'badge-emoji';
+            span.style.order = String(t.order);
+            span.dataset.tier = String(t.tier);
+            span.textContent = t.emoji;
+            // v8.1 (2026-04-27)：達成した tier ちょうど 1 個だけを表示。
+            //   旧 (v7/v8.0)：t.tier >= earnedTier で「易しい称号も全部表示」 → BBQ さん 11.47 秒で 7 個出る事故
+            //   新：t.tier === earnedTier で「現在のベストに対応する 1 個」のみ → 称号と完全一致
+            if (t.tier === earnedTier) span.classList.add('is-earned');
+            containerEl.appendChild(span);
+          });
+          containerEl.classList.remove('is-empty');
+        }
+
+        return { renderInto, tierFromTime, _TIERS: TIERS };
+      })();
 
       function loadRanking(mode) {
         const key = mode === "daily" ? LS_KEYS.rankingDaily : LS_KEYS.rankingNormal;
@@ -5841,9 +6230,12 @@
         }
 
         // ※ 累計チャレンジ数のインクリメントは setupAndStart 側（GAME START 押下時）に
-        //   移動した。ここでは表示の同期だけ行う（他端末の更新も反映するため強制再取得）。
+        //   移動した。ここでは表示の同期だけ行う。
+        // v9.5 (2026-04-27)：forceRefresh: true を false に変更（Firestore reads 削減）。
+        //   30 秒キャッシュ越しの表示で十分。自分のプレイ +1 はローカルキャッシュで即時反映済み。
+        //   削減効果: ゲーム終了ごと -1 read。
         (async () => {
-          try { await refreshPlayCountUI({ forceRefresh: true }); } catch (_) {}
+          try { await refreshPlayCountUI(); } catch (_) {}
         })();
 
         resultOverlay.classList.add("active");
@@ -5864,6 +6256,11 @@
           rank: pendingSave.rank,
           date: pendingSave.date,
           device: detectDevice(),
+          // v9 (2026-04-27)：このブラウザの UUID を Firestore に同梱。
+          //   Phase 3 で「自分のエントリ判定」を UUID 完全一致 1 段に置き換える基盤。
+          //   既存登録者（uuid フィールドなし）は Firestore 側で undefined のまま、ランキング順位
+          //   表示には引き続き使われる（バッジ対象外になるだけ）。
+          uuid: getOrCreateUserUuid(),
         };
         // ローカルにも保存（オフライン・フォールバック）
         const inTop10 = saveRanking(pendingSave.mode, entry);
@@ -5879,6 +6276,9 @@
         });
         // Firestoreにも保存（fire-and-forget）
         saveRankingCloud(entry);
+        // v8 (2026-04-27)：v7 で入れた Achievements.recordEarned (localStorage 保存) は廃止。
+        //   バッジは ranking 配列上の自分のエントリ time から動的算出するため、ここで保存する必要は無い。
+        //   localStorage の残骸（旧 'bakaBadge_achieved_titles'）は read していないので無視される。
         nameFormWrap.style.display = "none";
         pendingSave = null;
       }
@@ -5896,10 +6296,13 @@
         // ── 累計チャレンジ数 +1（GAME START / RESTART / デイリー開始すべて 1 挑戦としてカウント）
         //   未クリア／タイムアウト／途中離脱でも計上されるよう、ゲーム開始の最初で実行する。
         //   fire-and-forget（await しない）のでネットワーク遅延でカウントダウンが詰まらない。
-        //   表示同期も合わせてキック（forceRefresh で他端末の更新も拾う）。
+        // v9.5 (2026-04-27)：表示同期の forceRefresh: true を false に変更（Firestore reads 削減）。
+        //   incrementTotalChallengeCount 内で _playCountCache += 1 が走るのでキャッシュ越しでも自分の +1 は即時反映。
+        //   30 秒キャッシュ越しでも十分（他端末更新は次回 cache 失効時に拾う）。
+        //   削減効果: GAME START / RESTART / デイリー開始ごと -1 read。
         (async () => {
           try { await incrementTotalChallengeCount(); } catch (_) {}
-          try { await refreshPlayCountUI({ forceRefresh: true }); } catch (_) {}
+          try { await refreshPlayCountUI(); } catch (_) {}
         })();
 
         // ── BGM フェードイン（ユーザー操作起点） ─────────────────────────
