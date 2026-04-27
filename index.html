@@ -3473,6 +3473,7 @@
         dailyPlayedDate: "bakaBadge_daily_played_date",
         myBestEntry: "bakaBadge_my_best_entry", // 自分の歴代ベスト1件（id, name, time, rank, date, mode）
         userUuid: "bakaBadge_user_uuid",        // v9 (2026-04-27)：このブラウザ固有の UUID（バッジ識別の核）
+        devMode: "bakaBadge_dev_mode",          // v9.6 (2026-04-27)：開発者モード（"true" で記録/カウントをスキップ）
       };
       // v8 (2026-04-27)：以前 (v7) は 'bakaBadge_achieved_titles' に獲得済み tier 配列を保存していたが、
       //   ranking 配列上の自分のエントリのベストタイムから動的算出する方式に変更したため未使用化。
@@ -4137,6 +4138,35 @@
         });
       }
 
+      // ── 開発者モード（v9.6 / 2026-04-27） ─────────────────────────────────
+      //   localStorage に "true" がセットされたブラウザでは:
+      //     - 累計プレイカウンタへの +1 をスキップ（incrementTotalChallengeCount で早期 return）
+      //     - ranking エントリの保存をスキップ（saveScoreIfNeeded で早期 return）
+      //   開発・テストプレイで本番データを汚染しないための仕組み。一般ユーザーは LS_KEYS.devMode を
+      //   操作する手段がないので、誤って開発者扱いになることはない。
+      //   admin helpers は DevTools コンソールから呼び出す:
+      //     __setDevMode(true)  → ON
+      //     __setDevMode(false) → OFF
+      //     __isDevMode()       → 現在値を確認
+      function isDevUser() {
+        return lsGet(LS_KEYS.devMode) === "true";
+      }
+      window.__setDevMode = function (enabled) {
+        if (enabled === true) {
+          lsSet(LS_KEYS.devMode, "true");
+          console.log("✅ [DEV MODE] ON — このブラウザでは記録/カウントがスキップされます");
+        } else {
+          lsSet(LS_KEYS.devMode, "");
+          console.log("🟢 [DEV MODE] OFF — 通常カウントに戻りました");
+        }
+        return isDevUser();
+      };
+      window.__isDevMode = function () {
+        const dev = isDevUser();
+        console.log(`[DEV MODE] 現在: ${dev ? "ON ✅" : "OFF 🟢"}`);
+        return dev;
+      };
+
       // ── 自分のベスト記録 1 件を localStorage に保持（ページをまたいでもハイライト／順位表示に使う） ──
       function loadMyBestEntry() {
         try {
@@ -4424,6 +4454,11 @@
       // GAME START 押下時に呼ばれる、累計チャレンジ +1。
       // Firestore の atomic increment を使うので同時アクセスでも競合しない。
       async function incrementTotalChallengeCount() {
+        // v9.6 (2026-04-27)：開発者モード時はスキップ（テストプレイで本番カウンタを汚染しない）
+        if (isDevUser()) {
+          console.log("⚠️ [Dev mode] counter increment skipped");
+          return;
+        }
         try {
           const inc = firebase.firestore.FieldValue.increment(1);
           await CHALLENGES_REF().set({ count: inc }, { merge: true });
@@ -6279,6 +6314,14 @@
 
       function saveScoreIfNeeded() {
         if (!pendingSave) return;
+        // v9.6 (2026-04-27)：開発者モード時はスキップ（テストスコアでランキングを汚染しない）。
+        //   pendingSave はクリアして、UI 上は記録した状態に戻す（ユーザーは何も気付かない）。
+        if (isDevUser()) {
+          console.log("⚠️ [Dev mode] ranking entry save skipped");
+          nameFormWrap.style.display = "none";
+          pendingSave = null;
+          return;
+        }
         const nameRaw = shikonaInput.value.trim() || "名無しのプレイヤー";
         const name = nameRaw.slice(0, 10);
         const entry = {
