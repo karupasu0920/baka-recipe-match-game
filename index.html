@@ -4484,6 +4484,8 @@
       //   "TOP100 (N名を表示中)" でNが妙に小さいときの原因切り分け用。
       //   Firestore 全件取得するので使いすぎ注意（ふだんは呼ばないこと）。
       window.__debugRankings = async function () {
+        // v9.6 (2026-04-27)：実行コスト警告。誤実行で Firestore reads を浪費しないよう注意喚起。
+        console.warn("⚠️ __debugRankings(): rankings コレクションの全 doc を読みます（推定 1,000〜2,000 reads）。診断用、頻繁な実行は避けてください。");
         try {
           console.group("📊 ランキング診断");
           const all = await db.collection("rankings").get();
@@ -4571,6 +4573,8 @@
         const MAX_FETCH = 3000;
         const SNAPSHOT_COLLECTION = "ranking_snapshot_pre_v9_5";
 
+        // v9.6 (2026-04-27)：実行コスト警告。誤実行で Firestore reads を浪費しないよう注意喚起。
+        console.warn(`⚠️ __createBadgeSnapshot(): rankings から最大 ${MAX_FETCH} doc 読む可能性あり（通常 130〜300 reads）${dryRun ? "。DRY-RUN のため書き込みはスキップ。" : "。本実行：snapshot コレクションに 130 件書き込み。"}`);
         console.group(`📸 v9.5 バッジスナップショット作成 ${dryRun ? "[DRY-RUN]" : "[本実行]"}`);
         try {
           // ── Step 1: fetch loop ──────────────────────────────────────
@@ -4671,6 +4675,22 @@
         return li;
       }
 
+      // v9.6 (2026-04-27)：renderStartRanking 結果の 10 秒キャッシュ。
+      //   背景：renderStartRanking は ① 初回ロード ② 結果→TOP戻る ③ 中断→TOP戻る ④ resize 768px跨ぎ
+      //   の 4 経路で呼ばれる。1 回あたり loadRankingCloud(200) + fetchMyBestEntryFromCloud で
+      //   200 + 1〜3 = 約 200 reads。連続的な操作（結果→TOP戻る を含む 1 セッション）で
+      //   600〜1500 reads/session の主因になっていた。
+      //   10 秒キャッシュで自分の操作（記録する直後の TOP 戻り）は invalidate 経由で即時反映、
+      //   他人のランクイン更新は最大 10 秒遅れて反映。バカレシピ展会場で隣同士プレイの体感は許容範囲。
+      //   invalidate は saveScoreIfNeeded 末尾で行う（自分の記録更新時に確実）。
+      let _startRankingDataCache = null;
+      let _startRankingCacheAt = 0;
+      const START_RANKING_CACHE_MS = 10000;
+      function invalidateStartRankingCache() {
+        _startRankingDataCache = null;
+        _startRankingCacheAt = 0;
+      }
+
       async function renderStartRanking() {
         // v8 (2026-04-27)：v7 で関数冒頭に置いた localStorage 由来のバッジ描画は廃止。
         //   バッジは ranking 配列構築後（named）に「自分のエントリの time」から動的算出する。
@@ -4687,24 +4707,36 @@
         loading.style.color = "rgba(255,255,255,0.5)";
         startRankList.appendChild(loading);
 
-        // Firestore から取得（失敗時は localStorage）。名無し除外＋重複削除を経るので
-        // 元データは多めに取る。上位を常連プレイヤーが連投で占めるケース
-        // （名前付き 100 件→ユニーク 6 名）でも TOP5/8 表示を埋められるよう 200 件確保。
-        // v8.3 (2026-04-27)：バッジ用に「自分のエントリ 1 件」も並列で fetch。
-        //   旧仕様は named 配列から findMyTimeIn で探していたが、上位 200 raw 内に自分が居ないと
-        //   永遠に未表示になる事故があったため、順位無関係に取れる別経路に切り替え。
-        const [listOrNull, myCloudEntry] = await Promise.all([
-          loadRankingCloud(200),
-          fetchMyBestEntryFromCloud(),
-        ]);
-        let list = listOrNull;
-        if (!list) list = loadRanking("normal");
-        if (!Array.isArray(list)) list = [];
+        // v9.6 (2026-04-27)：10 秒キャッシュをチェック。ヒットすれば fetch を完全スキップ。
+        const now = Date.now();
+        let named, myCloudEntry;
+        if (_startRankingDataCache && (now - _startRankingCacheAt) < START_RANKING_CACHE_MS) {
+          ({ named, myCloudEntry } = _startRankingDataCache);
+        } else {
+          // Firestore から取得（失敗時は localStorage）。名無し除外＋重複削除を経るので
+          // 元データは多めに取る。上位を常連プレイヤーが連投で占めるケース
+          // （名前付き 100 件→ユニーク 6 名）でも TOP5/8 表示を埋められるよう 200 件確保。
+          // v8.3 (2026-04-27)：バッジ用に「自分のエントリ 1 件」も並列で fetch。
+          //   旧仕様は named 配列から findMyTimeIn で探していたが、上位 200 raw 内に自分が居ないと
+          //   永遠に未表示になる事故があったため、順位無関係に取れる別経路に切り替え。
+          const [listOrNull, fetchedMyEntry] = await Promise.all([
+            loadRankingCloud(200),
+            fetchMyBestEntryFromCloud(),
+          ]);
+          let list = listOrNull;
+          if (!list) list = loadRanking("normal");
+          if (!Array.isArray(list)) list = [];
 
-        // 名無し除外 → 重複削除（getEntryUniqueKey でベストのみ残す） → _pos 付与
-        const filtered = list.filter(e => (e && e.name || "").trim() !== "名無しのプレイヤー");
-        const deduped = deduplicateRankings(filtered);
-        const named = deduped.map((e, i) => ({ ...e, _pos: i + 1 }));
+          // 名無し除外 → 重複削除（getEntryUniqueKey でベストのみ残す） → _pos 付与
+          const filtered = list.filter(e => (e && e.name || "").trim() !== "名無しのプレイヤー");
+          const deduped = deduplicateRankings(filtered);
+          named = deduped.map((e, i) => ({ ...e, _pos: i + 1 }));
+          myCloudEntry = fetchedMyEntry;
+
+          // キャッシュに保存（次回 10 秒以内の呼び出しで再利用）
+          _startRankingDataCache = { named, myCloudEntry };
+          _startRankingCacheAt = now;
+        }
 
         // v8.3 (2026-04-27)：バッジは myCloudEntry（自分専用クエリ）の time から決める。
         //   - myCloudEntry 取得成功 → 順位無関係にバッジ表示（rank 68 でも 500+ でも OK）
@@ -6279,6 +6311,9 @@
         // v8 (2026-04-27)：v7 で入れた Achievements.recordEarned (localStorage 保存) は廃止。
         //   バッジは ranking 配列上の自分のエントリ time から動的算出するため、ここで保存する必要は無い。
         //   localStorage の残骸（旧 'bakaBadge_achieved_titles'）は read していないので無視される。
+        // v9.6 (2026-04-27)：renderStartRanking キャッシュを invalidate。
+        //   自分の記録が変わったので次回スタート画面表示で必ず再 fetch（自分のスコア即時反映）。
+        invalidateStartRankingCache();
         nameFormWrap.style.display = "none";
         pendingSave = null;
       }
