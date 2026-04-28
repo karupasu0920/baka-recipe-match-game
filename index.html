@@ -2872,6 +2872,36 @@
         display: none !important;
       }
 
+      /* ── 裏モード v10.3 (2026-04-28) ─────────────────────────────────
+         既存の startBtn / 周辺レイアウトに影響しないよう、新規 class のみで完結。
+         .start-btn-row は inline-flex で startBtn と 裏ボタンを横並びに。
+         ─────────────────────────────────────────────────────────── */
+      .start-btn-row {
+        display: inline-flex;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .uramode-btn {
+        /* GAME START と同じ高さ（flex-stretch）/ 横幅は「裏」1 文字分 + 余白 */
+        height: auto;
+        padding: 0 14px;
+        background: #000;
+        color: #fff;
+        border: 1px solid #444;
+        font-size: 1.1em;
+        font-weight: bold;
+        font-family: inherit;
+        cursor: pointer;
+        border-radius: 6px;
+        letter-spacing: 0.05em;
+        /* 影で startBtn と並んだ時に少し陥没した「裏」感を出す */
+        box-shadow: inset 0 0 8px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.05);
+        transition: transform 80ms ease, background 120ms ease;
+      }
+      .uramode-btn:hover { background: #1a1a1a; }
+      .uramode-btn:active { transform: scale(0.96); }
+      .uramode-btn[hidden] { display: none; }
+
     </style>
   </head>
   <body data-screen="start">
@@ -2902,7 +2932,12 @@
         <div class="main-content">
           <img src="./assets/Title.png?v=20260425c" alt="バカレシピ応援ゲーム" class="title-image" />
           <p class="title-sub">〜缶バッジペア消し〜</p>
-          <button id="startBtn">GAME START</button>
+          <!-- v10.3 (2026-04-28)：裏モード解放時に「裏」ボタンが GAME START の右に並ぶ。
+               .start-btn-row でラップ。既存 #startBtn セレクタは触らない（ラップだけ）。 -->
+          <div class="start-btn-row">
+            <button id="startBtn">GAME START</button>
+            <button id="uramodeBtn" class="uramode-btn" type="button" hidden aria-label="裏モード">裏</button>
+          </div>
           <!-- v7 (2026-04-27)：獲得済み称号バッジ。Achievements.renderInto() が描画するまで is-empty で空白を出さない。 -->
           <div id="badge-container-start" class="badge-container is-empty" aria-label="獲得した称号バッジ"></div>
         </div>
@@ -3568,6 +3603,10 @@
         // ゲーム画面以外に遷移したらダンスキャラを停止（リソース節約＆非表示化）
         if (target !== "game") {
           try { danceCharacter && danceCharacter.stop(); } catch (_) { /* noop */ }
+        }
+        // v10.3 (2026-04-28)：start 画面復帰時に裏モードボタン可視性を再評価。
+        if (target === "start") {
+          try { updateUramodeBtnVisibility(); } catch (_) { /* noop */ }
         }
       }
 
@@ -4251,6 +4290,26 @@
         console.log(`[URA MODE] 自分のアンロック状態: ${u ? "解放 ✅" : "ロック中 🔒"}`);
         return u;
       };
+
+      // ── 裏モードボタン表示制御（v10.3 / 2026-04-28） ────────────────────
+      //   isUramodeUnlocked() の結果で hidden 属性を切替える。
+      //   Phase 3 時点では (b) 全コンプ / (c) dev mode のみ true 返却（TOP20 未連携）。
+      //   Phase 8 で renderStartRanking が _uramodeTop20Cached を更新すると (a) も発火。
+      async function updateUramodeBtnVisibility() {
+        const btn = document.getElementById('uramodeBtn');
+        if (!btn) return;
+        try {
+          const unlocked = await isUramodeUnlocked();
+          if (unlocked) btn.removeAttribute('hidden');
+          else          btn.setAttribute('hidden', '');
+        } catch (_) {
+          btn.setAttribute('hidden', '');
+        }
+      }
+      // 起動時にも 1 回評価（ホーム画面初期表示時の状態を反映）
+      document.addEventListener('DOMContentLoaded', () => {
+        updateUramodeBtnVisibility();
+      });
 
       // ── 自分のベスト記録 1 件を localStorage に保持（ページをまたいでもハイライト／順位表示に使う） ──
       function loadMyBestEntry() {
@@ -5033,6 +5092,8 @@
       function invalidateStartRankingCache() {
         _startRankingDataCache = null;
         _startRankingCacheAt = 0;
+        // v10.3 (2026-04-28)：cache invalidate（記録する後など）と一緒に裏モードボタン可視性も再評価。
+        try { updateUramodeBtnVisibility(); } catch (_) { /* noop */ }
       }
 
       async function renderStartRanking() {
@@ -7260,6 +7321,16 @@
       Audio.init();
 
       startBtn.addEventListener("click", () => { Audio.playSE('click'); startNormal(); });
+      // v10.3 (2026-04-28)：裏モードボタンのクリック。Phase 3 では本体未実装、Phase 4 で setupAndStart('ura') に置換。
+      {
+        const _uramodeBtn = document.getElementById('uramodeBtn');
+        if (_uramodeBtn) {
+          _uramodeBtn.addEventListener("click", () => {
+            Audio.playSE('click');
+            console.log('[URA MODE] 裏モードボタン押下（Phase 3 - 本体未実装）');
+          });
+        }
+      }
       closeTutorialBtn.addEventListener("click", () => { Audio.playSE('click'); closeTutorial(); });
 
       inGameRetryBtn.addEventListener("click", () => {
