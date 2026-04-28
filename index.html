@@ -4718,11 +4718,17 @@
       //     - device が未定義の旧データは 'unknown' として扱う（同じ旧データ同士のみ統合）
       //   ベストタイム以外を捨てるだけのシンプル方式。
       //   呼び出し前に必ず .filter(isNamedEntry) で名無しを弾いておくこと（推奨）。
+      // v9.5.5 (2026-04-28)：device をキーから除外。
+      //   旧設計は `name+rank+device` で「PC とモバイルの同一人物を別行に残す」仕様だったが、
+      //   実運用上 v8 以前の古いエントリ（device 無し → 'unknown'）と v8 以降のエントリ
+      //   （device='mobile'/'pc'）が同一人物でも別キーで分裂し、ランキングが二重表示される
+      //   問題が発生した（実例：かぼすタイム ペヤング称号 13.22秒 / 13.23秒）。
+      //   PC + モバイル両方で遊んだ人を 1 行に統合する副作用は、🖥️ マーク（残ったエントリの
+      //   device に依存）で device の情報自体は残すため許容。
       function getEntryUniqueKey(data) {
         const name = (data && data.name != null) ? String(data.name) : 'unknown';
         const rank = (data && data.rank != null) ? String(data.rank) : 'unknown';
-        const device = (data && data.device != null) ? String(data.device) : 'unknown';
-        return `${name}__${rank}__${device}`;
+        return `${name}__${rank}`;
       }
       function deduplicateRankings(list) {
         if (!Array.isArray(list)) return [];
