@@ -3540,6 +3540,12 @@
       let firstSelected = null;
       let lockInput = false;
       let combo = 0;
+      // v10.0 (2026-04-28)：1 ゲーム内でカウンタ +1 を最大 1 回に制限するためのフラグ。
+      //   旧仕様（〜v9.x）は GAME START / RESTART 押下のたびに +1 だったが、
+      //   ボタン連打や誤クリックでも増えてしまう問題があった。
+      //   新仕様：1 ゲーム内で「最初のペア成立」が発生した時だけ +1 する。
+      //   setupAndStart() 内のセッションリセット時に false に戻す。
+      let hasCountedThisGame = false;
       let latestRankingEntryId = "";
       let heartbeatTimer = null;
       let pendingSave = null;
@@ -5643,6 +5649,22 @@
         if (first.card.badgeId === card.badgeId) {
           // ── 一致 ──
           combo += 1;
+          // v10.0 (2026-04-28)：1 ゲーム内で最初のペア成立時に累計プレイ +1。
+          //   旧仕様（〜v9.x）は GAME START 押下で +1 だったが、ボタン連打や誤クリックで
+          //   カウントが膨張する問題があった。「実質的にプレイした人」だけを集計するため、
+          //   ペアを 1 つでも消した時点で初めてカウントする方式に変更。
+          //   - hasCountedThisGame フラグで 1 ゲーム内 1 回だけ +1 を保証
+          //   - dev mode 時はスキップ（incrementTotalChallengeCount 内にも二重防御あり）
+          //   - fire-and-forget（catch のみ）でアニメーションを一切ブロックしない
+          if (!hasCountedThisGame) {
+            hasCountedThisGame = true;
+            if (!isDevUser()) {
+              incrementTotalChallengeCount().catch(() => {});
+              refreshPlayCountUI().catch(() => {});
+            } else {
+              console.warn("⚠️ [Dev mode] counter increment skipped (first pair match)");
+            }
+          }
           first.card.matched = true;    // 即座にタップ無効
           card.matched       = true;
           first.el.style.pointerEvents = "none";
@@ -6371,15 +6393,11 @@
         sessionId++;                   // 旧drawBoard RAF・setTimeout を無効化
         lockInput = false;
 
-        // ── 累計チャレンジ数 +1（GAME START / RESTART / デイリー開始すべて 1 挑戦としてカウント）
-        //   未クリア／タイムアウト／途中離脱でも計上されるよう、ゲーム開始の最初で実行する。
-        //   fire-and-forget（await しない）のでネットワーク遅延でカウントダウンが詰まらない。
-        // v9.5 (2026-04-27)：表示同期の forceRefresh: true を false に変更（Firestore reads 削減）。
-        //   incrementTotalChallengeCount 内で _playCountCache += 1 が走るのでキャッシュ越しでも自分の +1 は即時反映。
-        //   30 秒キャッシュ越しでも十分（他端末更新は次回 cache 失効時に拾う）。
-        //   削減効果: GAME START / RESTART / デイリー開始ごと -1 read。
+        // v10.0 (2026-04-28)：旧仕様の「GAME START 押下で +1」を廃止。
+        //   ボタン連打や誤クリックでもカウントが増える問題があったため、
+        //   「1 ゲーム内で最初のペア成立時に +1」方式（onCardTap 内）に移行した。
+        //   ここでは累計表示の同期だけ行う（他端末更新を 30 秒キャッシュ越しで拾う）。
         (async () => {
-          try { await incrementTotalChallengeCount(); } catch (_) {}
           try { await refreshPlayCountUI(); } catch (_) {}
         })();
 
@@ -6395,6 +6413,9 @@
         bonusTime = 0;
         firstSelected = null;
         combo = 0;
+        // v10.0 (2026-04-28)：新ゲーム開始時にカウント済みフラグをリセット。
+        //   このゲーム内で初めてペア成立した時だけ累計プレイ +1 する。
+        hasCountedThisGame = false;
         timerEl.textContent = LIMIT_SECONDS.toFixed(2);
         timerEl.classList.remove("warn", "critical", "bonus-glow");
         comboBanner.classList.remove("show");
