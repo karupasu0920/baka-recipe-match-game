@@ -4191,6 +4191,20 @@
         if (!entry || typeof entry.time !== "number") return;
         const prev = loadMyBestEntry();
         if (!prev) { saveMyBestEntry(entry); return; }
+        // v9.5.4 (2026-04-28)：prev.name が「名無しのプレイヤー」の場合、real name エントリで
+        //   タイム比較なしに強制上書きする（旧版で空名のまま記録した残骸の自動クリーンアップ）。
+        //   v9.5.3 で名無し＝未登録扱いにしたため、ユーザーが real name で「記録する」を押しても
+        //   旧 9.10 秒より遅いタイムだと従来は localStorage が更新されず、フッターが出続けない
+        //   問題があった。real name で正式保存が来た時点で localStorage を新エントリへ昇格させる。
+        const prevName = (prev.name || "").trim();
+        const entryName = (entry.name || "").trim();
+        const isPrevAnonymous = prevName === "名無しのプレイヤー";
+        const isEntryNamed = entryName && entryName !== "名無しのプレイヤー";
+        const isEntryFormal = typeof entry.id === "string" && !/^auto_/.test(entry.id);
+        if (isPrevAnonymous && isEntryNamed && isEntryFormal) {
+          saveMyBestEntry(entry);
+          return;
+        }
         if (entry.time < prev.time) { saveMyBestEntry(entry); return; }
         // 同タイムで「正式 id（auto_ ではない）」が来たら、自動保存を正式記録で上書き。
         // 用途：endGame() 直後の自動保存 → ユーザーが「記録する」を押した正式保存への昇格。
