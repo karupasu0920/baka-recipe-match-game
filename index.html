@@ -5128,6 +5128,14 @@
         //   一意なので、他人と衝突する可能性は実質ゼロ（同名他人問題を再発させない）。
         //   この fallback はフッターテキスト表示のみ影響し、バッジは別経路（getMyEarnedTiers）で
         //   引き続き UUID + binding ベースで動作（仕様分離）。
+        // v9.5.6 (2026-04-28)：dedup 後の表示エントリは「同名複数件のうちベストタイム」が残る仕様。
+        //   v9.5 以降で記録した自分のエントリ（UUID 有り）が最速とは限らず、過去の自分の pre-UUID
+        //   エントリ（UUID 無し）の方が速くて dedup 勝者になるケースがある。この場合 UUID 一致も
+        //   id 一致も dedup 勝者ヒットせず、フッターが旧「あなたは」表示にフォールバックしていた。
+        //   そこで第 3 段として name 一致 fallback を追加する。
+        //   安全性: e.uuid が undefined（pre-v9.5）か、または自分の UUID と一致するエントリのみマッチ。
+        //   同名他人が UUID 付きで保存した行は弾く（v9.5 の name_uuid_binding が登録時点で同名他人を
+        //   ブロックしているので、binding が機能している限り e.uuid===myUuid 以外の同名行は出ない想定）。
         let myEntryInList = null;
         if (Array.isArray(top100Filtered) && top100Filtered.length) {
           const myUuid = getOrCreateUserUuid();
@@ -5137,6 +5145,12 @@
           // v9.5.2 fallback: pre-v9 登録者向けの id 一致
           if (!myEntryInList && mine.id && !/^auto_/.test(mine.id)) {
             myEntryInList = top100Filtered.find(e => e && e.id === mine.id) || null;
+          }
+          // v9.5.6 fallback: name 一致（dedup で UUID 無し旧エントリが勝者になっているケース）
+          if (!myEntryInList && mine.name && mine.name !== "名無しのプレイヤー") {
+            myEntryInList = top100Filtered.find(e =>
+              e && e.name === mine.name && (!e.uuid || e.uuid === myUuid)
+            ) || null;
           }
         }
 
