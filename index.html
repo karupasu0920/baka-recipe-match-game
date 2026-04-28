@@ -7012,6 +7012,11 @@
           //   既存登録者（uuid フィールドなし）は Firestore 側で undefined のまま、ランキング順位
           //   表示には引き続き使われる（バッジ対象外になるだけ）。
           uuid: getOrCreateUserUuid(),
+          // v10.3 fix v9 (2026-04-29)：mode フィールドを Firestore にも保存。
+          //   旧版は maybeUpdateMyBestEntry にだけ mode を載せていて Firestore 側は undefined になり、
+          //   dedup と表示で全 entry が "normal" 扱いになって 🎭 マークが出ない不具合があった。
+          //   "normal" / "ura" のいずれかが入る。
+          mode: pendingSave.mode,
         };
         // ローカルにも保存（オフライン・フォールバック）
         const inTop10 = saveRanking(pendingSave.mode, entry);
