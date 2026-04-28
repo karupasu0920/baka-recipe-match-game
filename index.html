@@ -3633,8 +3633,9 @@
         userUuid: "bakaBadge_user_uuid",        // v9 (2026-04-27)：このブラウザ固有の UUID（バッジ識別の核）
         devMode: "bakaBadge_dev_mode",          // v9.6 (2026-04-27)：開発者モード（"true" で記録/カウントをスキップ）
         lastName: "bakaBadge_last_name",        // v9.5.1 (2026-04-28)：直近に「記録する」で入力した名前（次回結果画面でプリフィル用）
-        recordCount: "bakaBadge_record_count",  // v10.3 (2026-04-28)：「記録する」押下総回数（裏モード解放条件用）
         uramodeOverride: "bakaBadge_uramode_override", // v10.3 (2026-04-28)：URAMODE_ENABLED 定数の DevTools 上書き
+        xShareDone: "bakaBadge_x_share_done",          // v10.3 fix v5 (2026-04-28)：「記録してXでシェア」押下フラグ（裏モード解放条件 (a) の片方）
+        uramodeUnlocked: "bakaBadge_uramode_unlocked", // v10.3 fix v5 (2026-04-28)：裏モード解放永続化フラグ（一度 true なら以降ずっと解放）
       };
       // v8 (2026-04-27)：以前 (v7) は 'bakaBadge_achieved_titles' に獲得済み tier 配列を保存していたが、
       //   ranking 配列上の自分のエントリのベストタイムから動的算出する方式に変更したため未使用化。
@@ -4370,31 +4371,29 @@
         if (ovr === "false") return false;
         return URAMODE_ENABLED === true;
       }
-      function getRecordCount() {
-        try {
-          const v = parseInt(lsGet(LS_KEYS.recordCount) || "0", 10);
-          return Number.isFinite(v) && v >= 0 ? v : 0;
-        } catch (_) { return 0; }
-      }
-      function incrementRecordCount() {
-        const next = getRecordCount() + 1;
-        try { lsSet(LS_KEYS.recordCount, String(next)); } catch (_) {}
-        return next;
-      }
-      // renderStartRanking() が cache 更新時にここへ「自分が TOP20 入り？」を書く（Phase 8 で連携）。
+      // renderStartRanking() が cache 更新時にここへ「自分が通常モード TOP50 入り？」を書く。
       // null = 未判定（fetch 前 or fetch 失敗）、true/false = 判定済。
-      let _uramodeTop20Cached = null;
+      let _uramodeTop50Cached = null;
       async function isUramodeUnlocked() {
         if (!isUramodeFlagEnabled()) return false;
-        if (isDevUser()) return true;  // dev は無条件解放
-        // (b) 全コンプ
+        // (0) 永続化フラグ最優先：一度解放されたら以降ずっと true
+        if (lsGet(LS_KEYS.uramodeUnlocked) === "true") return true;
+        // (c) dev mode：永続化はせず、OFF にしたら戻る
+        if (isDevUser()) return true;
+        // (b) 全 10 tier コンプ → 永続化して true
         try {
           const earned = await getMyEarnedTiers();
-          if (earned && earned.size >= 10) return true;
+          if (earned && earned.size >= 10) {
+            try { lsSet(LS_KEYS.uramodeUnlocked, "true"); } catch (_) {}
+            return true;
+          }
         } catch (_) { /* 失敗時は他経路で判定 */ }
-        // (a) TOP20 入り && recordCount >= 10
-        if (getRecordCount() < 10) return false;
-        return _uramodeTop20Cached === true;
+        // (a) 通常モード TOP50 入り && X シェア済 → 永続化して true
+        if (lsGet(LS_KEYS.xShareDone) === "true" && _uramodeTop50Cached === true) {
+          try { lsSet(LS_KEYS.uramodeUnlocked, "true"); } catch (_) {}
+          return true;
+        }
+        return false;
       }
       window.__setUramodeEnabled = function (enabled) {
         if (enabled === true) {
@@ -4419,6 +4418,13 @@
         const u = await isUramodeUnlocked();
         console.log(`[URA MODE] 自分のアンロック状態: ${u ? "解放 ✅" : "ロック中 🔒"}`);
         return u;
+      };
+      // v10.3 fix v5 (2026-04-28)：解放永続化フラグ + X シェア済フラグをクリアするデバッグ用。
+      window.__resetUramodeUnlock = function () {
+        try { lsSet(LS_KEYS.uramodeUnlocked, ""); } catch (_) {}
+        try { lsSet(LS_KEYS.xShareDone, ""); } catch (_) {}
+        console.log("🔄 [URA MODE] 解放フラグ + X シェアフラグをクリア（条件再評価が必要）");
+        try { updateUramodeBtnVisibility(); } catch (_) {}
       };
 
       // ── 裏モードボタン表示制御（v10.3 / 2026-04-28） ────────────────────
@@ -5288,22 +5294,39 @@
           if (badgeC) Achievements.renderInto(badgeC, myEarnedTiers);
         } catch (_) { /* noop（描画失敗でランキング表示は止めない） */ }
 
-        // v10.3 Phase 8 (2026-04-28)：裏モード解放条件 (a) の TOP20 判定をここで更新。
-        //   通常モードのランキング（mode === "ura" を除外）で自分の UUID が上位 20 位以内かを見る。
-        //   結果は _uramodeTop20Cached に保存し、isUramodeUnlocked() が参照する。
-        //   updateUramodeBtnVisibility() で「裏」ボタンの表示も即時更新。
+        // v10.3 fix v5 (2026-04-28)：裏モード解放条件 (a) の通常モード TOP50 判定。
+        //   通常モードのランキング（mode === "ura" を除外）から自分のエントリを探す。
+        //   自分判定は v9.5.6 の footer fallback と同じ 3 段階：
+        //     1) UUID 一致（v9.5+ 登録者）
+        //     2) id 一致（pre-v9 登録者で formal id を持つ場合）
+        //     3) name 一致（pre-UUID エントリが dedup 勝者になっているケース、UUID なし or 自分のと一致のみ）
+        //   結果は _uramodeTop50Cached に保存し、isUramodeUnlocked() が参照する。
+        //   updateUramodeBtnVisibility() で「裏」ボタンの表示も即時更新（X シェア済 + TOP50 で永続解放）。
         try {
           const myUuid = getOrCreateUserUuid();
-          if (myUuid && Array.isArray(named)) {
+          const mineRecord = loadMyBestEntry();
+          if (Array.isArray(named)) {
             const normalOnly = named.filter(e => !e || e.mode !== "ura");
-            const myIdx = normalOnly.findIndex(e => e && e.uuid === myUuid);
-            _uramodeTop20Cached = (myIdx >= 0 && myIdx < 20);
+            let myEntry = null;
+            if (myUuid) {
+              myEntry = normalOnly.find(e => e && e.uuid === myUuid) || null;
+            }
+            if (!myEntry && mineRecord && mineRecord.id && !/^auto_/.test(mineRecord.id)) {
+              myEntry = normalOnly.find(e => e && e.id === mineRecord.id) || null;
+            }
+            if (!myEntry && mineRecord && mineRecord.name && mineRecord.name !== "名無しのプレイヤー") {
+              myEntry = normalOnly.find(e =>
+                e && e.name === mineRecord.name && (!e.uuid || e.uuid === myUuid)
+              ) || null;
+            }
+            const myIdx = myEntry ? normalOnly.indexOf(myEntry) : -1;
+            _uramodeTop50Cached = (myIdx >= 0 && myIdx < 50);
           } else {
-            _uramodeTop20Cached = false;
+            _uramodeTop50Cached = false;
           }
           updateUramodeBtnVisibility();
         } catch (_) {
-          _uramodeTop20Cached = null;
+          _uramodeTop50Cached = null;
         }
 
         // ファーストビュー対策：モバイルは件数を絞ってボタンがスクロールなしで見えるように
@@ -6960,9 +6983,6 @@
         });
         // Firestoreにも保存（fire-and-forget）
         saveRankingCloud(entry);
-        // v10.3 (2026-04-28)：裏モード解放条件用の「記録する」押下カウント。dev mode は早期 return で
-        //   ここまで来ないので、テストプレイで偽カウントが膨らむことは無い。
-        incrementRecordCount();
         // v8 (2026-04-27)：v7 で入れた Achievements.recordEarned (localStorage 保存) は廃止。
         //   バッジは ranking 配列上の自分のエントリ time から動的算出するため、ここで保存する必要は無い。
         //   localStorage の残骸（旧 'bakaBadge_achieved_titles'）は read していないので無視される。
@@ -8125,6 +8145,13 @@
 
         // ステップ 3: 3 段階フォールバックで X 起動
         openXShare(buildShareText(), GAME_URL);
+
+        // v10.3 fix v5 (2026-04-28)：裏モード解放条件 (a) の片側「X シェア済」フラグ ON。
+        //   ここで永続化フラグまでは立てない（TOP50 入りも揃って初めて isUramodeUnlocked が
+        //   true を返すため）。最後に updateUramodeBtnVisibility を呼んで現状で解放できるか
+        //   即時チェック → 既に TOP50 圏内なら今この瞬間に「裏」ボタンが現れる。
+        try { lsSet(LS_KEYS.xShareDone, "true"); } catch (_) {}
+        try { updateUramodeBtnVisibility(); } catch (_) {}
       });
 
       // ── TOP 画面「💫 ゲームを紹介」ボタン → シェア手段選択モーダル ─────

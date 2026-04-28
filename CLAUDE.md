@@ -101,21 +101,23 @@
 - 大きめの変更には `// v6 (2026-04-27)：…` のように **バージョンタグ＋日付** を付けてある。
 - 新しい修正を入れたら同様に `vN (YYYY-MM-DD)` で動機・トレードオフを残す（次の AI / 開発者のために）。
 
-### 4-9. 裏モード仕様（v10.3 / 2026-04-28）
+### 4-9. 裏モード仕様（v10.3 / 2026-04-28、v5 で解放条件刷新）
 - **完全独立実装方針**：通常モードに影響しないよう、すべて `body[data-mode="ura"]` セレクタ + `gameMode === "ura"` ガード経由。既存関数（drawBoard, gameLoop, saveScoreCloud 等）は触らない、追加のみ。
-- **解放条件（OR）**：
-  - (a) 通常モードランキングで TOP20 入り **かつ** `recordCount >= 10`（記録ボタン押下総数）
+- **解放条件（OR、v10.3 fix v5 / 2026-04-28）**：
+  - (a) 通常モードランキングで **TOP50 入り** かつ **「記録してXでシェア」ボタン押下済**（`bakaBadge_x_share_done = "true"`）
   - (b) 全 10 tier コンプ（`getMyEarnedTiers().size === 10`）
-  - (c) `isDevUser()`（強制解放）
+  - (c) `isDevUser()`（dev mode、永続化はしない・OFF にしたら戻る）
+- **解放の永続化**：(a)/(b) を満たした瞬間に `bakaBadge_uramode_unlocked = "true"` を保存。以降は条件圏外に落ちても解放維持。デバッグ用に `__resetUramodeUnlock()` で永続化フラグ + X シェア済フラグを両方クリア可能。
+- **TOP50 自分判定（v9.5.6 footer と同じ 3 段階）**：UUID 一致 → id 一致（pre-v9 formal id）→ name 一致（pre-UUID 同名 dedup 勝者、UUID 無し or 自分のと一致のみ）。`renderStartRanking` 内で計算し `_uramodeTop50Cached` に保存。
 - **機能フラグ**：`URAMODE_ENABLED` 定数 + `LS_KEYS.uramodeOverride` で全体 ON/OFF。緊急停止は `__setUramodeEnabled(false)` を DevTools で実行。
 - **dedup key**：`name + rank + mode` （v10.3 で mode 追加）。mode 無し既存エントリは "normal" として扱う。
 - **ランキング表示**：通常ランキングに統合、`mode === "ura"` のエントリは名前頭に 🎭 を付与（renderFullRankingRow / renderRankItem 両方）。
 - **ゲーム挙動**：
   - 木目背景の上に半透明黒オーバーレイで暗転
-  - z-index 50 のフルスクリーンレイヤーが mask-image radial-gradient で 250px の円だけ明るく見せる（@property + keyframes で TV グランプリ風軌道、タップで一時追従）
-  - drawBoard が作ったカードに対し、別 RAF ループ（`startUramodeRoaming`）で `left/top` を更新して動かす（CSS transform は触らない）
+  - z-index 50 のフルスクリーンレイヤーが mask-image を 2 つ重ねて intersect 合成 = 「タイマー周辺の常時楕円」と「移動する円形ライト」が同時に明るく見える
+  - drawBoard が作ったカードに対し、別 RAF ループ（`startUramodeRoaming`）で `left/top` を更新して動かす（CSS transform は触らない）。初期 1.5x → 傾き 0.05/秒 → 上限 3.5x の緩やかな加速
   - DanceCharacter `frameDuration` を 1000/12 に / Audio `playbackRate = 1.5`
-- **TOP20 cache**：`renderStartRanking` 内で計算 → `_uramodeTop20Cached` に保存。`isUramodeUnlocked()` が参照。
+- **「裏」ボタン UI**：GAME START の右に absolute 配置、黒地 + 白字 + 赤 2px 枠。`updateUramodeBtnVisibility()` が `isUramodeUnlocked()` の結果で hidden 切替。
 
 ---
 
