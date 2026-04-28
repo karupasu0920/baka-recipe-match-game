@@ -2902,6 +2902,53 @@
       .uramode-btn:active { transform: scale(0.96); }
       .uramode-btn[hidden] { display: none; }
 
+      /* ── 裏モード ダークテーマ v10.3 Phase 4 (2026-04-28) ────────────
+         body[data-mode="ura"] のときだけ発火。木目背景は維持しつつ、
+         半透明の黒オーバーレイで全体を暗転。既存セレクタへの !important 上書きは
+         必要箇所のみ最小限。通常モード（属性なし）には一切影響しない。
+         ─────────────────────────────────────────────────────────── */
+      body[data-mode="ura"][data-screen="game"]::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+        z-index: 0;
+        pointer-events: none;
+      }
+      /* 遊び方説明枠：黒背景 + 赤枠 */
+      body[data-mode="ura"] #matchedFoodPanel {
+        background: #000 !important;
+        border: 2px solid #cc0000 !important;
+        box-shadow: 0 0 12px rgba(204, 0, 0, 0.6) !important;
+      }
+      /* 上部「裏モード」大見出し */
+      #uramodeHeading {
+        display: none;
+        position: fixed;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 1.3em;
+        font-weight: bold;
+        color: #fff;
+        letter-spacing: 0.4em;
+        text-shadow: 0 0 8px #cc0000, 0 0 16px #cc0000;
+        z-index: 60;
+        pointer-events: none;
+        opacity: 0.9;
+        white-space: nowrap;
+      }
+      body[data-mode="ura"] #uramodeHeading { display: block; }
+      /* マャーちゃんも少し暗く（裏モードの不気味さ） */
+      body[data-mode="ura"] .dance-character {
+        filter: brightness(0.55) saturate(1.3) hue-rotate(-10deg);
+      }
+      /* タイマーは視認性確保のため白系を強調 */
+      body[data-mode="ura"] .timer {
+        color: #fff;
+        text-shadow: 0 0 6px #cc0000;
+      }
+
     </style>
   </head>
   <body data-screen="start">
@@ -2986,6 +3033,9 @@
 
     <section id="gameScreen" class="screen">
       <div class="game-ui">
+        <!-- v10.3 (2026-04-28)：裏モード時のみ表示される大見出し（CSS で body[data-mode="ura"] 連動）。
+             通常モードでは display:none で完全非表示。 -->
+        <div id="uramodeHeading" aria-hidden="true">裏モード</div>
         <!-- 🐱 ダンスキャラクター「マャーちゃん」（背景の上、バッジの下） -->
         <div class="dance-character is-paused" aria-hidden="true"></div>
         <div id="timer" class="timer">45.00</div>
@@ -3607,6 +3657,13 @@
         // v10.3 (2026-04-28)：start 画面復帰時に裏モードボタン可視性を再評価。
         if (target === "start") {
           try { updateUramodeBtnVisibility(); } catch (_) { /* noop */ }
+        }
+        // v10.3 (2026-04-28)：裏モード data 属性の同期。ゲーム画面遷移時に gameMode を見て付け外す。
+        //   ゲーム以外の画面に遷移する際は data-mode を必ず外す（結果モーダル等で残らないように）。
+        if (target === "game" && gameMode === "ura") {
+          document.body.setAttribute("data-mode", "ura");
+        } else {
+          document.body.removeAttribute("data-mode");
         }
       }
 
@@ -6871,6 +6928,13 @@
         setupAndStart("normal", { seekBgmToStart: true });
       }
 
+      // v10.3 (2026-04-28)：裏モード起動。setupAndStart に "ura" を渡すだけ。
+      //   既存 setupAndStart の getDeck/再挑戦ガードは "daily" 専用分岐なので "ura" は通常パスを通る。
+      //   body[data-mode="ura"] の付与は switchScreen('game') 側で gameMode を見て自動処理（Edit 4-4）。
+      function startUramode() {
+        setupAndStart("ura", { seekBgmToStart: true });
+      }
+
       function startDaily() {
         const played = lsGet(LS_KEYS.dailyPlayedDate);
         if (played === todayString()) {
@@ -7321,13 +7385,13 @@
       Audio.init();
 
       startBtn.addEventListener("click", () => { Audio.playSE('click'); startNormal(); });
-      // v10.3 (2026-04-28)：裏モードボタンのクリック。Phase 3 では本体未実装、Phase 4 で setupAndStart('ura') に置換。
+      // v10.3 (2026-04-28)：裏モードボタンのクリック → startUramode()（Phase 4 で本体接続）。
       {
         const _uramodeBtn = document.getElementById('uramodeBtn');
         if (_uramodeBtn) {
           _uramodeBtn.addEventListener("click", () => {
             Audio.playSE('click');
-            console.log('[URA MODE] 裏モードボタン押下（Phase 3 - 本体未実装）');
+            startUramode();
           });
         }
       }
