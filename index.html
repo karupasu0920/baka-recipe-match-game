@@ -5315,9 +5315,11 @@
               myEntry = normalOnly.find(e => e && e.id === mineRecord.id) || null;
             }
             if (!myEntry && mineRecord && mineRecord.name && mineRecord.name !== "名無しのプレイヤー") {
-              myEntry = normalOnly.find(e =>
-                e && e.name === mineRecord.name && (!e.uuid || e.uuid === myUuid)
-              ) || null;
+              // v10.3 fix v6 (2026-04-28)：name 一致の UUID guard を緩和。
+              //   過去にサイトデータクリア等で UUID が変わったユーザーは、自身の TOP50 entry と
+              //   現 UUID が一致せず unlock 判定で漏れていた。name_uuid_binding 制度が
+              //   「同名 = 同一人物」を保証しているため、純粋な name 一致で安全。
+              myEntry = normalOnly.find(e => e && e.name === mineRecord.name) || null;
             }
             const myIdx = myEntry ? normalOnly.indexOf(myEntry) : -1;
             _uramodeTop50Cached = (myIdx >= 0 && myIdx < 50);
