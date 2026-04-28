@@ -4490,6 +4490,39 @@
         console.log("🔄 [URA MODE] 解放フラグ + X シェアフラグをクリア（条件再評価が必要）");
         try { updateUramodeBtnVisibility(); } catch (_) {}
       };
+      // v10.3 fix v11 (2026-04-29)：裏モードプレイヤー集計の admin helper。
+      //   Firestore の rankings コレクションから mode === "ura" のエントリを取得し、
+      //   名前ごとに「プレイ回数 / ベストタイム / UUID 先頭」を集計してコンソール出力する。
+      //   読み取り専用、ゲーム挙動には一切影響しない。
+      //   注意: mode フィールド未保存の旧 entry（v10.3 fix v9 以前）は ura 集計に出ない。
+      window.__listUramodePlayers = async function () {
+        try {
+          const snap = await db.collection("rankings").where("mode", "==", "ura").get();
+          const byPlayer = {};
+          snap.docs.forEach(d => {
+            const e = d.data();
+            const k = e.name || "(名無し)";
+            if (!byPlayer[k]) {
+              byPlayer[k] = { count: 0, best: Infinity, uuid: e.uuid ? e.uuid.slice(0, 8) : "-" };
+            }
+            byPlayer[k].count += 1;
+            if (typeof e.time === "number" && e.time < byPlayer[k].best) {
+              byPlayer[k].best = e.time;
+            }
+          });
+          const sorted = Object.entries(byPlayer).sort((a, b) => a[1].best - b[1].best);
+          console.group("🎭 裏モード プレイヤー一覧");
+          console.log(`計 ${snap.size} エントリ / ${sorted.length} 名`);
+          sorted.forEach(([n, d]) => {
+            console.log(`${n} (uuid=${d.uuid}): ${d.count}回 / ベスト ${d.best.toFixed(2)}秒`);
+          });
+          console.groupEnd();
+          return sorted.map(([n, d]) => ({ name: n, uuid: d.uuid, count: d.count, best: d.best }));
+        } catch (e) {
+          console.warn("[uramode] __listUramodePlayers failed:", e);
+          return null;
+        }
+      };
 
       // ── 裏モードボタン表示制御（v10.3 / 2026-04-28） ────────────────────
       //   isUramodeUnlocked() の結果で hidden 属性を切替える。
