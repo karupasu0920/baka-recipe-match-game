@@ -6757,6 +6757,8 @@
         // v10.3 Phase 6 (2026-04-28)：裏モード Roaming RAF も停止。gameRunning=false でも tick 内で
         //   早期 return するので二重保険だが、明示的に止めることで RAF を即座に解放。
         try { stopUramodeRoaming(); } catch (_) { /* noop */ }
+        // v10.3 Phase 7 (2026-04-28)：1.5x 速度をリセット。次回プレイ（通常モード含む）で残らないように。
+        try { applyUramodeSpeed(false); } catch (_) { /* noop */ }
         stopAudioLoops();
         Audio.fadeOutBGM();
         hideMatchedFood();
@@ -6974,10 +6976,13 @@
         gameRunning = true;
         rafId = requestAnimationFrame(ts => gameLoop(ts, gen));
         try { danceCharacter.start(); } catch (_) { /* noop */ }
-        // v10.3 Phase 6 (2026-04-28)：裏モード時のみゴキブリ Move を起動。
-        //   gameMode は既に setupAndStart 引数で更新済み。startUramodeRoaming は内部で再 guard。
+        // v10.3 Phase 6/7 (2026-04-28)：裏モード時のみゴキブリ Move + 1.5x 速度を適用。
+        //   通常モード起動時は applyUramodeSpeed(false) で必ずリセット → 退行ゼロ。
         if (gameMode === "ura") {
           try { startUramodeRoaming(); } catch (_) { /* noop */ }
+          try { applyUramodeSpeed(true); } catch (_) { /* noop */ }
+        } else {
+          try { applyUramodeSpeed(false); } catch (_) { /* noop */ }
         }
       }
 
@@ -7100,6 +7105,33 @@
           _uramodeRoamState.rafId = null;
         }
         _uramodeRoamState.cards = [];
+      }
+
+      // ── 裏モード 1.5 倍速 v10.3 Phase 7 (2026-04-28) ─────────────────
+      //   マャーちゃんダンスと BGM を裏モード時のみ 1.5 倍速にする。
+      //   - DanceCharacter の frameDuration 直接書き換え（既存 instance のプロパティだけ触る）
+      //   - Audio.setBgmPlaybackRate(1.5) で playbackRate のみ変更
+      //   - on=false で完全リセット（fps=8 / rate=1.0）
+      //   通常モード起動時は applyUramodeSpeed(false) でリセットされるため、退行不可。
+      function applyUramodeSpeed(on) {
+        const URA_MUL = 1.5;
+        try {
+          if (danceCharacter) {
+            const newFps = on ? 8 * URA_MUL : 8;
+            danceCharacter.fps = newFps;
+            danceCharacter.frameDuration = 1000 / newFps;
+            // 既に走行中なら interval を再生成して反映
+            if (danceCharacter.intervalId) {
+              clearInterval(danceCharacter.intervalId);
+              danceCharacter.intervalId = setInterval(() => danceCharacter.tick(), danceCharacter.frameDuration);
+            }
+          }
+        } catch (_) { /* noop */ }
+        try {
+          if (Audio && typeof Audio.setBgmPlaybackRate === 'function') {
+            Audio.setBgmPlaybackRate(on ? URA_MUL : 1.0);
+          }
+        } catch (_) { /* noop */ }
       }
 
       function startDaily() {
@@ -7411,6 +7443,17 @@
           setBgmVolumeNow(0);
         }
 
+        // v10.3 Phase 7 (2026-04-28)：BGM 速度倍率変更（裏モード 1.5x 用）。
+        //   既存 fadeInBGM/fadeOutBGM/Volume には一切干渉せず、playbackRate のみ更新する。
+        //   iOS Safari 16+ は HTMLMediaElement.playbackRate 対応済み（preservesPitch は実装差あり、
+        //   ピッチ変更は許容）。要素未生成時は ensureBgmEl で確保する。rate=1.0 で通常速度復帰。
+        function setBgmPlaybackRate(rate) {
+          const el = ensureBgmEl();
+          if (!el) return;
+          const r = (typeof rate === 'number' && isFinite(rate) && rate > 0) ? rate : 1.0;
+          try { el.playbackRate = r; } catch (e) { /* noop */ }
+        }
+
         // 一時停止（外部リンク遷移時など）：bgmShouldPlay は維持して、
         // <audio> 要素のみを pause する。復帰時に resumeBGMForLink() で
         // 元の意思（=元の音量・状態）で再生し直せる。
@@ -7545,6 +7588,8 @@
           setBgmLevel,
           setSeLevel,
           beepGain,
+          // v10.3 Phase 7 (2026-04-28)：BGM 速度倍率（裏モード 1.5x 用）。
+          setBgmPlaybackRate,
           getState: () => ({ bgmLevel: state.bgmLevel, seLevel: state.seLevel }),
         };
       })();
