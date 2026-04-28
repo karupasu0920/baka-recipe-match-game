@@ -4374,6 +4374,70 @@
       // renderStartRanking() が cache 更新時にここへ「自分が通常モード TOP50 入り？」を書く。
       // null = 未判定（fetch 前 or fetch 失敗）、true/false = 判定済。
       let _uramodeTop50Cached = null;
+      // v10.3 fix v8 (2026-04-28)：通常モード TOP50 判定（UI 表示ランキング基準）。
+      //   loadFullRankingCloud と同じページング方式で、normal-mode unique を 50 件確保するまで fetch。
+      //   TOP100 モーダルで「自分は 22 位」と表示されるユーザーは、ここでも 22 位として検出される。
+      //
+      //   段階:
+      //   (1) localStorage から自分の記録（mine.time, mine.name）を取得
+      //   (2) name_uuid_binding で「この名前は自分のもの」を確認（暴発防止）
+      //   (3) ページングで rankings コレクションから batch fetch、normal-mode 名前付き unique を集計
+      //   (4) 累積 raw を dedup → normal フィルタ → 自分の name 一致 entry の _pos が < 50 か判定
+      //
+      //   コスト: 上位ユニークの重複密度に依存。22 位ユーザーで ~500 reads 程度。10 秒キャッシュで
+      //   amortize される。永続化フラグが立てば二度と呼ばれない。
+      async function checkIsInNormalTop50() {
+        const mine = loadMyBestEntry();
+        if (!mine || typeof mine.time !== "number") return false;
+        const myName = (mine.name || "").trim();
+        if (!myName || myName === "名無しのプレイヤー") return false;
+        const myUuid = getOrCreateUserUuid();
+
+        // (2) binding 所有権チェック：name 一致による暴発を防ぐ
+        try {
+          const binding = await getNameBinding(myName);
+          if (!binding || binding.uuid !== myUuid) return false;
+        } catch (_) { return false; }
+
+        // (3) ページング fetch：normal-mode unique 50 件確保するまで
+        const FETCH_BATCH = 200;
+        const SAFETY = 3000;
+        let lastDoc = null;
+        const allRaw = [];
+        const normalDedupKeys = new Set();
+        let fetched = 0;
+        try {
+          while (normalDedupKeys.size < 50 && fetched < SAFETY) {
+            let q = db.collection("rankings").orderBy("time", "asc").limit(FETCH_BATCH);
+            if (lastDoc) q = q.startAfter(lastDoc);
+            const snap = await q.get();
+            if (snap.empty) break;
+            lastDoc = snap.docs[snap.docs.length - 1];
+            snap.docs.forEach(d => {
+              const data = d.data();
+              allRaw.push(data);
+              if (data && data.name && data.name.trim() !== "名無しのプレイヤー" && data.mode !== "ura") {
+                normalDedupKeys.add(getEntryUniqueKey(data));
+              }
+            });
+            fetched += snap.docs.length;
+            if (snap.docs.length < FETCH_BATCH) break;
+          }
+        } catch (e) {
+          console.warn("[uramode] TOP50 fetch failed:", e);
+          return false;
+        }
+
+        // (4) UI 表示と同じ手順で TOP50 を構築 → 自分を name 一致で検出
+        const filtered = allRaw.filter(e => (e && e.name || "").trim() !== "名無しのプレイヤー");
+        const dedup = deduplicateRankings(filtered);
+        const normalOnly = dedup.filter(e => !e || e.mode !== "ura");
+        const myEntry = normalOnly.find(e => e && e.name === myName);
+        if (!myEntry) return false;
+        const myIdx = normalOnly.indexOf(myEntry);
+        return myIdx >= 0 && myIdx < 50;
+      }
+
       async function isUramodeUnlocked() {
         if (!isUramodeFlagEnabled()) return false;
         // (0) 永続化フラグ最優先：一度解放されたら以降ずっと true
@@ -5294,45 +5358,16 @@
           if (badgeC) Achievements.renderInto(badgeC, myEarnedTiers);
         } catch (_) { /* noop（描画失敗でランキング表示は止めない） */ }
 
-        // v10.3 fix v5 (2026-04-28)：裏モード解放条件 (a) の通常モード TOP50 判定。
-        //   通常モードのランキング（mode === "ura" を除外）から自分のエントリを探す。
-        //   自分判定は v9.5.6 の footer fallback と同じ 3 段階：
-        //     1) UUID 一致（v9.5+ 登録者）
-        //     2) id 一致（pre-v9 登録者で formal id を持つ場合）
-        //     3) name 一致（pre-UUID エントリが dedup 勝者になっているケース、UUID なし or 自分のと一致のみ）
-        //   結果は _uramodeTop50Cached に保存し、isUramodeUnlocked() が参照する。
-        //   updateUramodeBtnVisibility() で「裏」ボタンの表示も即時更新（X シェア済 + TOP50 で永続解放）。
+        // v10.3 fix v8 (2026-04-28)：TOP50 判定を UI 表示ランキング基準に変更。
+        //   旧版は renderStartRanking が表示する loadRankingCloud(200) の結果を使っていたが、
+        //   重複の多いランキング（少数の常連プレイヤーが上位を埋める）では raw 200 件 dedup 後に
+        //   ユニーク数が < 50 にしかならず、22 位ユーザーすら検出できなかった。
+        //   独自ページング（loadFullRankingCloud と同じパターン）で normal-mode unique 50 件を
+        //   確保するまで fetch し、TOP100 モーダルで実際に表示される順位と一致させる。
+        //   結果は _uramodeTop50Cached に保存。
         try {
-          const myUuid = getOrCreateUserUuid();
-          const mineRecord = loadMyBestEntry();
-          if (Array.isArray(named)) {
-            const normalOnly = named.filter(e => !e || e.mode !== "ura");
-            let myEntry = null;
-            if (myUuid) {
-              myEntry = normalOnly.find(e => e && e.uuid === myUuid) || null;
-            }
-            if (!myEntry && mineRecord && mineRecord.id && !/^auto_/.test(mineRecord.id)) {
-              myEntry = normalOnly.find(e => e && e.id === mineRecord.id) || null;
-            }
-            if (!myEntry && mineRecord && mineRecord.name && mineRecord.name !== "名無しのプレイヤー") {
-              // v10.3 fix v7 (2026-04-28)：name 一致を binding 所有権でガード。
-              //   過去にサイトデータクリアして UUID が変わったユーザーでも、device-match-rebind で
-              //   binding が現 UUID を所有していれば、その名前の entry は自分のものと判定可能。
-              //   getMyEarnedTiers の snapshot grandfathering と完全に同じパターン。
-              //   無関係な人が同名を借りても binding 所有者でなければ漏れるので、
-              //   永続解放の暴発を防ぎつつ pre-UUID 正規ユーザーは救える。
-              try {
-                const binding = await getNameBinding(mineRecord.name);
-                if (binding && binding.uuid === myUuid) {
-                  myEntry = normalOnly.find(e => e && e.name === mineRecord.name) || null;
-                }
-              } catch (_) { /* binding 取得失敗は no match 扱い */ }
-            }
-            const myIdx = myEntry ? normalOnly.indexOf(myEntry) : -1;
-            _uramodeTop50Cached = (myIdx >= 0 && myIdx < 50);
-          } else {
-            _uramodeTop50Cached = false;
-          }
+          const result = await checkIsInNormalTop50();
+          _uramodeTop50Cached = result === true;
           updateUramodeBtnVisibility();
         } catch (_) {
           _uramodeTop50Cached = null;
@@ -8140,10 +8175,31 @@
 
         // クリア時で記録未送信なら、名前バリデーション → 記録
         if (pendingSave) {
-          const name = (shikonaInput.value || '').trim();
+          const rawName = (shikonaInput.value || '').trim();
+          const name = rawName.slice(0, 10);
           if (!name) {
             openNameWarning();
             return;
+          }
+          // v10.3 fix v8 (2026-04-28)：Firestore doc id として使えない文字を弾く（saveScoreBtn と同等）
+          if (name.includes('/') || name === '.' || name === '..' || /^__.+__$/.test(name)) {
+            openInvalidNameWarning();
+            return;
+          }
+          // v10.3 fix v8 (2026-04-28)：saveScoreBtn と同等の binding チェック。
+          //   過去にサイトデータクリアで UUID が変わったユーザーが「記録する」を経由せず
+          //   shareBtn だけ押したケースで binding が古い UUID のまま残る問題を解消。
+          //   device-match-rebind で現 UUID を binding 所有者にする。
+          if (!isDevUser()) {
+            try {
+              const myUuid = getOrCreateUserUuid();
+              const myDevice = detectDevice();
+              const bindingResult = await checkAndBindName(name, myUuid, myDevice);
+              if (!bindingResult.ok && bindingResult.reason === "device_mismatch") {
+                openNameConflictWarning();
+                return;
+              }
+            } catch (_) { /* binding error はログ済み・記録は試みる */ }
           }
           try {
             saveScoreIfNeeded();
