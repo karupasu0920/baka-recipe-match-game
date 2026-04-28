@@ -2985,16 +2985,26 @@
         inset: 0;
         z-index: 50;
         pointer-events: none;
-        /* v10.3 fix v2 (2026-04-28)：mask-image 方式廃止 → radial-gradient を直接 background に。
-           シンプル化 + ユーザー指定のコントラスト調整。
-           中心: 完全クリア（缶バッジ鮮明）/ 30% 半径: 30% 暗 / 端: 70% 暗。
-           暗い部分でも「薄っすら缶バッジの存在は分かる」レベル。 */
-        background: radial-gradient(
-          circle 250px at var(--uspot-x) var(--uspot-y),
-          transparent 0%,
-          rgba(0, 0, 0, 0.3) 30%,
-          rgba(0, 0, 0, 0.7) 100%
-        );
+        /* v10.3 fix v3 (2026-04-28)：2 ゾーン構造（タイマー楕円 + 移動円）。
+           - background は最大暗度 0.82（案 Y の終端値）を solid で塗る
+           - mask-image を 2 つ重ねて intersect で合成 = 「どちらかが透明な領域 = overlay 透過 = 明るい」
+           - 1 つ目: タイマー位置に常時明るい横長楕円（240×60）
+           - 2 つ目: var(--uspot-x/y) で動く移動スポット（円 250px、中央〜30% で減衰）
+           中間コントラスト（案 Y / 0% transparent → 30% rgba(0,0,0,0.5) → 100% rgba(0,0,0,0.82)）と
+           等価になるよう、移動スポット側のマスクは 30% で 0.61 = 0.5/0.82 に設定。 */
+        background: rgba(0, 0, 0, 0.82);
+        -webkit-mask-image:
+          radial-gradient(ellipse 240px 60px at 50% calc(10px + var(--timer-size) / 2),
+                          transparent 0%, transparent 50%, black 100%),
+          radial-gradient(circle 250px at var(--uspot-x) var(--uspot-y),
+                          transparent 0%, rgba(0,0,0,0.61) 30%, black 100%);
+        -webkit-mask-composite: source-in;
+        mask-image:
+          radial-gradient(ellipse 240px 60px at 50% calc(10px + var(--timer-size) / 2),
+                          transparent 0%, transparent 50%, black 100%),
+          radial-gradient(circle 250px at var(--uspot-x) var(--uspot-y),
+                          transparent 0%, rgba(0,0,0,0.61) 30%, black 100%);
+        mask-composite: intersect;
         /* 軌道速度 2 倍（8s → 4s）。タップ追従削除に伴い transition も削除（keyframe 補間と干渉するため） */
         animation: uramode-spotlight-orbit 4s ease-in-out infinite alternate;
       }
@@ -7084,8 +7094,10 @@
             return;
           }
           const elapsed = (now - _uramodeRoamState.startTime) / 1000;
-          // 速度倍率: 1.0 + elapsed * 0.05, 上限 2.5（30 秒で 2.5x に到達）
-          const speedMul = Math.min(2.5, 1.0 + elapsed * 0.05);
+          // v10.3 fix v3 (2026-04-28)：速度を案 Q に強化。
+          //   初期倍率 1.5x、傾き 0.07/秒、上限 3.5（30 秒で 3.5x 到達）
+          //   ランダムウォーク ±0.12（生命感アップ）
+          const speedMul = Math.min(3.5, 1.5 + elapsed * 0.07);
           const boardW = boardEl.clientWidth;
           const boardH = boardEl.clientHeight;
           const margin = cardSize / 2;
@@ -7094,8 +7106,8 @@
             // matched / shaking 中は位置固定
             if (c.el.classList.contains('matched') || c.el.classList.contains('shaking')) return;
             // ランダムウォーク（生命感）
-            c.vx += (Math.random() - 0.5) * 0.08;
-            c.vy += (Math.random() - 0.5) * 0.08;
+            c.vx += (Math.random() - 0.5) * 0.12;
+            c.vy += (Math.random() - 0.5) * 0.12;
             // 速度上限
             const maxV = 2.2;
             if (c.vx >  maxV) c.vx =  maxV;
