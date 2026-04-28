@@ -2985,24 +2985,23 @@
         inset: 0;
         z-index: 50;
         pointer-events: none;
-        /* v10.3 fix v12 (2026-04-29)：明るさバランス再調整。
-           - background 0.82 → 0.65（周囲の暗さを緩和、缶バッジが薄っすら見えるレベル）
-           - 移動スポットの明るい範囲を広げる：中心〜40% 半径まで完全クリア → 65% で 0.4 暗
-             に減衰 → 100% で全暗。これでスポットライト中央が「明らかに明るい」感に
-           - タイマー楕円は据え置き
+        /* v10.3 fix v14 (2026-04-29)：スポットライトの完全クリア領域を拡大。
+           - 移動スポット: 中心〜60% 半径（旧 40%）まで完全クリア → 80% で 0.4 暗 → 100% で全暗
+             これで「明らかに明るい円」がより大きく見え、缶バッジ視認性が向上。
+           - background 0.65（v12 と同じ）/ タイマー楕円は据え置き。
            2 ゾーン構造（タイマー楕円 + 移動円、mask-composite: intersect）は維持。 */
         background: rgba(0, 0, 0, 0.65);
         -webkit-mask-image:
           radial-gradient(ellipse 240px 60px at 50% calc(10px + var(--timer-size) / 2),
                           transparent 0%, transparent 50%, black 100%),
           radial-gradient(circle 250px at var(--uspot-x) var(--uspot-y),
-                          transparent 0%, transparent 40%, rgba(0, 0, 0, 0.4) 65%, black 100%);
+                          transparent 0%, transparent 60%, rgba(0, 0, 0, 0.4) 80%, black 100%);
         -webkit-mask-composite: source-in;
         mask-image:
           radial-gradient(ellipse 240px 60px at 50% calc(10px + var(--timer-size) / 2),
                           transparent 0%, transparent 50%, black 100%),
           radial-gradient(circle 250px at var(--uspot-x) var(--uspot-y),
-                          transparent 0%, transparent 40%, rgba(0, 0, 0, 0.4) 65%, black 100%);
+                          transparent 0%, transparent 60%, rgba(0, 0, 0, 0.4) 80%, black 100%);
         mask-composite: intersect;
         /* 軌道速度 2 倍（8s → 4s）。タップ追従削除に伴い transition も削除（keyframe 補間と干渉するため） */
         animation: uramode-spotlight-orbit 4s ease-in-out infinite alternate;
@@ -3653,7 +3652,7 @@
       //   - 不一致なら静かにフルリロード（クエリ ?v=<ts> でキャッシュ強制バイパス）
       //   - ゲーム中（gameRunning / lockInput / pendingSave）は reload しない
       //   ※ デプロイ手順：APP_VERSION と version.json の両方を同じ値に更新して push
-      const APP_VERSION = "v13";
+      const APP_VERSION = "v14";
       async function checkForAppUpdate() {
         // ゲーム中・記録未送信・入力ロック中は reload しない
         try {
