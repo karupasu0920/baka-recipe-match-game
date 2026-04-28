@@ -4274,6 +4274,80 @@
         }
       }
 
+      // ── 名前↔UUID 紐付け（v9.5 / 2026-04-28） ────────────────────────────
+      //   name_uuid_binding コレクションで「ある名前を最初に登録した UUID」を保護する。
+      //   なりすまし防止 + device 一致救済（同 PC で別ブラウザ等の救済）の両方を満たす。
+      //
+      //   挙動（runTransaction で原子化、同名の同時記録時の race condition を防ぐ）:
+      //     1. 紐付け未存在 → 自分の uuid + device で初回登録、ok
+      //     2. 紐付け済み（uuid 一致） → 本人継続プレイ、device 変わってたら更新、ok
+      //     3. 紐付け済み（uuid 不一致 + device 一致） → 本人扱いで上書き救済、ok
+      //     4. 紐付け済み（uuid 不一致 + device 不一致） → device_mismatch エラー
+      //
+      //   読み取り専用ヘルパ（getNameBinding）はバッジ判定で snapshot 参照可否のチェックに使う。
+      async function getNameBinding(name) {
+        if (!name || typeof name !== 'string') return null;
+        try {
+          const doc = await db.collection("name_uuid_binding").doc(name).get();
+          return doc.exists ? doc.data() : null;
+        } catch (e) {
+          console.warn("name_uuid_binding read failed:", e);
+          return null;
+        }
+      }
+
+      // checkAndBindName(name, myUuid, myDevice) → 結果オブジェクト
+      //   { ok: true,  action: "first_bind" | "same_uuid" | "device_match_rebind" }
+      //   { ok: false, reason: "device_mismatch", existingDevice: "pc"|"mobile" }
+      //   { ok: false, reason: "error", error: Error }
+      async function checkAndBindName(name, myUuid, myDevice) {
+        if (!name || !myUuid) {
+          return { ok: false, reason: "invalid_args" };
+        }
+        try {
+          return await db.runTransaction(async (tx) => {
+            const ref = db.collection("name_uuid_binding").doc(name);
+            const snap = await tx.get(ref);
+
+            if (!snap.exists) {
+              // 1) 初回紐付け
+              tx.set(ref, {
+                uuid: myUuid,
+                device: myDevice,
+                boundAt: firebase.firestore.FieldValue.serverTimestamp(),
+              });
+              return { ok: true, action: "first_bind" };
+            }
+
+            const data = snap.data();
+            if (data.uuid === myUuid) {
+              // 2) 本人継続プレイ。device が変わってたら更新（PC↔モバイル切替時）
+              if (data.device !== myDevice) {
+                tx.update(ref, { device: myDevice });
+              }
+              return { ok: true, action: "same_uuid" };
+            }
+
+            // 別 UUID に紐付け済み
+            if (data.device === myDevice) {
+              // 3) device 一致救済 → 上書き（本人とみなす）
+              tx.update(ref, {
+                uuid: myUuid,
+                device: myDevice,
+                lastRebindAt: firebase.firestore.FieldValue.serverTimestamp(),
+              });
+              return { ok: true, action: "device_match_rebind" };
+            }
+
+            // 4) device 不一致 → 拒否
+            return { ok: false, reason: "device_mismatch", existingDevice: data.device };
+          });
+        } catch (e) {
+          console.warn("checkAndBindName transaction failed:", e);
+          return { ok: false, reason: "error", error: e };
+        }
+      }
+
       // ── Firestore ランキング TOP取得（「名前付きで100件」ベースのページング） ──
       //   仕様：
       //     1ページ = 名前付きエントリ 100 件。最大 3 ページ（= 名前付き 300 件）で打ち止め。
@@ -6961,7 +7035,44 @@
       //   新仕様: 空 / 空白のみのときは登録を中断し、警告ポップアップで再入力を促す。
       const nameWarningModal = document.getElementById('nameWarningModal');
       const nameWarningOkBtn = document.getElementById('nameWarningOkBtn');
+
+      // v9.5 (2026-04-28)：nameWarningModal を 3 用途で使い回すため、テキストを動的化。
+      //   各 open* 関数は表示前に必ずテキストをリセットし、用途別の文言を適用する。
+      //   これで「OFF 後 ON で前のモッダルテキストが残る」事故を防ぐ。
+      function _setNameWarningContent({ icon, mainText, subHtml }) {
+        if (!nameWarningModal) return;
+        const iconEl = nameWarningModal.querySelector('.name-warning-icon');
+        const textEl = nameWarningModal.querySelector('.name-warning-text');
+        const subEl  = nameWarningModal.querySelector('.name-warning-sub');
+        if (iconEl) iconEl.textContent = icon;
+        if (textEl) textEl.textContent = mainText;
+        if (subEl)  subEl.innerHTML    = subHtml;
+      }
       function openNameWarning() {
+        // 既存：名前未入力時の警告（空のままで「記録する」を押した）
+        _setNameWarningContent({
+          icon: '🐱',
+          mainText: 'お名前を入力してね！',
+          subHtml: 'ハンドルネームを入れて、<br>みんなのランキングに名乗り出よう✨',
+        });
+        if (nameWarningModal) nameWarningModal.classList.add('active');
+      }
+      // v9.5：名前 device 一致しない他人の binding 済み → なりすまし防止
+      function openNameConflictWarning() {
+        _setNameWarningContent({
+          icon: '🚫',
+          mainText: 'この名前は別の端末で使われています',
+          subHtml: '別のお名前を入力してください✨',
+        });
+        if (nameWarningModal) nameWarningModal.classList.add('active');
+      }
+      // v9.5：名前に Firestore doc id 不可文字が含まれる
+      function openInvalidNameWarning() {
+        _setNameWarningContent({
+          icon: '⚠️',
+          mainText: 'この名前は使えません',
+          subHtml: '「/」などの記号は使えません。<br>別のお名前を入力してください✨',
+        });
         if (nameWarningModal) nameWarningModal.classList.add('active');
       }
       function closeNameWarning() {
@@ -6981,12 +7092,48 @@
         });
       }
 
-      saveScoreBtn.addEventListener("click", () => {
+      // v9.5 (2026-04-28)：「記録する」押下時に name_uuid_binding をチェック。
+      //   - 名前バリデーション（Firestore doc id 不可文字）
+      //   - device 一致救済型の binding 検証（runTransaction で原子化）
+      //   - dev mode 時は binding 自体をスキップ（テストプレイで本番 binding を汚染しない）
+      //   - 非同期化したが retry/TOP 経由の saveScoreIfNeeded は引き続き同期呼び出し（binding チェックなし）
+      saveScoreBtn.addEventListener("click", async () => {
         Audio.playSE('click');
-        const name = (shikonaInput.value || '').trim();
+        // v9.5 (2026-04-28)：saveScoreIfNeeded 内で `nameRaw.slice(0, 10)` で 10 文字に切るので、
+        //   binding チェックも同じ slice 後の文字列で行う（ranking entry name と binding doc id を一致させる）。
+        //   これを忘れると、フル文字列で binding 作成 → ranking entry は 10 文字 → name 不一致で
+        //   Phase 4 の snapshot 参照（getMyBadgeTime）でグランドファザリングが効かなくなる。
+        const rawName = (shikonaInput.value || '').trim();
+        const name = rawName.slice(0, 10);
         if (!name) {
           openNameWarning();
           return;
+        }
+        // v9.5：Firestore doc id として使えない文字を弾く
+        //   "/" は path separator として使えない（最重要）。
+        //   "."・".." は単独で予約。`__.+__` パターンも予約。
+        //   名前は 10 文字制限のためほぼ問題ないが念のため。
+        if (name.includes('/') || name === '.' || name === '..' || /^__.+__$/.test(name)) {
+          openInvalidNameWarning();
+          return;
+        }
+        // v9.5：dev mode 時は binding チェックをスキップ（saveScoreIfNeeded 内でも save 自体スキップされる）
+        if (!isDevUser()) {
+          // ボタン連打防止：処理中は無効化
+          saveScoreBtn.disabled = true;
+          try {
+            const myUuid = getOrCreateUserUuid();
+            const myDevice = detectDevice();
+            const bindingResult = await checkAndBindName(name, myUuid, myDevice);
+            if (!bindingResult.ok && bindingResult.reason === "device_mismatch") {
+              openNameConflictWarning();
+              return;  // pendingSave はクリアしない（ユーザーが別名で再試行可）
+            }
+            // ok / device_match_rebind / first_bind / same_uuid → 続行
+            // （error 系はログ済み、保存は試みる：UUID 一致だけでもバッジは出る）
+          } finally {
+            saveScoreBtn.disabled = false;
+          }
         }
         saveScoreIfNeeded();
       });
