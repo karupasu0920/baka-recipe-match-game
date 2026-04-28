@@ -2874,16 +2874,21 @@
 
       /* ── 裏モード v10.3 (2026-04-28) ─────────────────────────────────
          既存の startBtn / 周辺レイアウトに影響しないよう、新規 class のみで完結。
-         .start-btn-row は inline-flex で startBtn と 裏ボタンを横並びに。
+         .start-btn-row は #startBtn の **位置基準**として使う（inline-block で #startBtn の幅に合わせる）。
+         裏ボタンは absolute で GAME START の右にオフセット → GAME START の中央寄せに影響しない。
+         z-index 17 で .scattered-badges (z:8) と #startBtn (z:16) より手前に出す。
          ─────────────────────────────────────────────────────────── */
       .start-btn-row {
-        display: inline-flex;
-        align-items: stretch;
-        gap: 8px;
+        display: inline-block;
+        position: relative;
+        z-index: 16;
       }
       .uramode-btn {
-        /* GAME START と同じ高さ（flex-stretch）/ 横幅は「裏」1 文字分 + 余白 */
-        height: auto;
+        /* #startBtn の右にオフセット配置（左中央寄せに影響しない） */
+        position: absolute;
+        left: calc(100% + 8px);
+        top: 0;
+        bottom: 0;
         padding: 0 14px;
         background: #000;
         color: #fff;
@@ -2894,6 +2899,9 @@
         cursor: pointer;
         border-radius: 6px;
         letter-spacing: 0.05em;
+        white-space: nowrap;
+        /* 散らしバッジ（z:8）と #startBtn（z:16）より手前に */
+        z-index: 17;
         /* 影で startBtn と並んだ時に少し陥没した「裏」感を出す */
         box-shadow: inset 0 0 8px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.05);
         transition: transform 80ms ease, background 120ms ease;
