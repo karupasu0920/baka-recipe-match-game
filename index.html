@@ -3474,6 +3474,7 @@
         myBestEntry: "bakaBadge_my_best_entry", // 自分の歴代ベスト1件（id, name, time, rank, date, mode）
         userUuid: "bakaBadge_user_uuid",        // v9 (2026-04-27)：このブラウザ固有の UUID（バッジ識別の核）
         devMode: "bakaBadge_dev_mode",          // v9.6 (2026-04-27)：開発者モード（"true" で記録/カウントをスキップ）
+        lastName: "bakaBadge_last_name",        // v9.5.1 (2026-04-28)：直近に「記録する」で入力した名前（次回結果画面でプリフィル用）
       };
       // v8 (2026-04-27)：以前 (v7) は 'bakaBadge_achieved_titles' に獲得済み tier 配列を保存していたが、
       //   ranking 配列上の自分のエントリのベストタイムから動的算出する方式に変更したため未使用化。
@@ -4401,6 +4402,72 @@
         return candidates.length ? Math.min(...candidates) : null;
       }
 
+      // ── バッジ用「自分が達成した全 tier」を返す（v10.2 / 2026-04-28） ────────
+      //   コレクション型バッジ表示の核。getMyBadgeTime と同じソース（live + snapshot）から、
+      //   各エントリの time → tier に変換して、達成した tier の Set を返す。
+      //
+      //   例: 自分が 2.5 秒 (tier 1)、9 秒 (tier 3)、20 秒 (tier 6) を達成 → Set {1, 3, 6}
+      //   バッジ描画では Set の各 tier に is-earned が付き、3 個の絵文字が点灯する。
+      //
+      //   dev mode 中は snapshot 参照スキップ（getMyBadgeTime と同じ方針）。
+      //
+      //   戻り値: Set<number>（空 Set なら全消し = is-empty 状態）
+      //
+      //   v10.2.2 (2026-04-28)：UUID ベースのコレクション（名前変更に左右されない）。
+      //     - 自分の UUID 一致 entry の全 tier を集計（名無しのプレイヤー のみ除外）
+      //     - 現在名・過去の別名・どちらの記録も同じコレクションに集約
+      //     - gating: mine.name 自体が空 / "名無しのプレイヤー" の場合は早期 return
+      //       （ユーザーがまだ「名乗って記録」していない状態 → badge 非表示）
+      //     - snapshot は別ロジック：現在名の binding 確認後にのみ参照（仕様上 UUID 持たないため）
+      async function getMyEarnedTiers() {
+        const tiers = new Set();
+        const myUuid = getOrCreateUserUuid();
+        if (!myUuid) return tiers;
+
+        // gating: ユーザーが「名乗って記録」状態にあるか確認
+        // 空 or 名無しのプレイヤー なら識別なし → badge 全消し
+        const mine = loadMyBestEntry();
+        const myCurrentName = (mine && mine.name) ? String(mine.name).trim() : "";
+        if (!myCurrentName || myCurrentName === "名無しのプレイヤー") return tiers;
+
+        // 1) live: UUID 一致 entry の tier を全部回収（名無しのプレイヤー のみ除外）
+        //    過去に別名で記録した entry も、UUID が同じなら自分のコレクション扱い。
+        //    クライアント側で name フィルタ（composite index 不要）
+        try {
+          const liveSnap = await db.collection("rankings")
+            .where("uuid", "==", myUuid)
+            .get();
+          liveSnap.docs.forEach(d => {
+            const data = d.data();
+            if (data && data.name !== "名無しのプレイヤー" && typeof data.time === 'number') {
+              const t = Achievements.tierFromTime(data.time);
+              if (t != null) tiers.add(t);
+            }
+          });
+        } catch (_) { /* live 取得失敗は致命的ではない */ }
+
+        // 2) snapshot: 紐付け確認後に grandfather entry の tier を回収（現在名のみ）
+        if (!isDevUser()) {
+          try {
+            const binding = await getNameBinding(myCurrentName);
+            if (binding && binding.uuid === myUuid) {
+              const snap = await db.collection("ranking_snapshot_pre_v9_5")
+                .where("name", "==", myCurrentName)
+                .get();
+              snap.docs.forEach(d => {
+                const data = d.data();
+                if (data && typeof data.time === 'number') {
+                  const t = Achievements.tierFromTime(data.time);
+                  if (t != null) tiers.add(t);
+                }
+              });
+            }
+          } catch (_) { /* snapshot 取得失敗は致命的ではない */ }
+        }
+
+        return tiers;
+      }
+
       // ── Firestore ランキング TOP取得（「名前付きで100件」ベースのページング） ──
       //   仕様：
       //     1ページ = 名前付きエントリ 100 件。最大 3 ページ（= 名前付き 300 件）で打ち止め。
@@ -4878,23 +4945,22 @@
         startRankList.appendChild(loading);
 
         // v9.6 (2026-04-27)：10 秒キャッシュをチェック。ヒットすれば fetch を完全スキップ。
-        // v9.5 (2026-04-28)：キャッシュ対象を myCloudEntry → myBadgeTime（getMyBadgeTime の結果）に変更。
-        //   getMyBadgeTime は live (UUID 一致) + snapshot (grandfather) の最速を返す共通関数。
-        //   両画面で同じ time を使うことで、フッターとバッジが構造的に一致する。
+        // v10.2 (2026-04-28)：キャッシュ対象を myBadgeTime → myEarnedTiers（Set<number>）に変更。
+        //   コレクション型表示のため、達成した全 tier を保持する Set を渡す。
+        //   両画面で同じ Set を使うことでバッジ表示が構造的に一致。
         const now = Date.now();
-        let named, myBadgeTime;
+        let named, myEarnedTiers;
         if (_startRankingDataCache && (now - _startRankingCacheAt) < START_RANKING_CACHE_MS) {
-          ({ named, myBadgeTime } = _startRankingDataCache);
+          ({ named, myEarnedTiers } = _startRankingDataCache);
         } else {
           // Firestore から取得（失敗時は localStorage）。名無し除外＋重複削除を経るので
           // 元データは多めに取る。上位を常連プレイヤーが連投で占めるケース
           // （名前付き 100 件→ユニーク 6 名）でも TOP5/8 表示を埋められるよう 200 件確保。
-          // v9.5 (2026-04-28)：バッジソースを fetchMyBestEntryFromCloud（live のみ）から
-          //   getMyBadgeTime（live + snapshot grandfather）に切り替え。これで過去ベスト持ちの
-          //   ユーザー（例：のじま王さん 2.73秒）が再プレイ時に過去のベストでバッジ取れる。
-          const [listOrNull, fetchedBadgeTime] = await Promise.all([
+          // v10.2 (2026-04-28)：バッジソースを getMyEarnedTiers（live + snapshot の達成 tier 全部）に切り替え。
+          //   コレクション型：複数のプレイで複数 tier を達成していれば、すべて点灯する。
+          const [listOrNull, fetchedTiers] = await Promise.all([
             loadRankingCloud(200),
-            getMyBadgeTime(),
+            getMyEarnedTiers(),
           ]);
           let list = listOrNull;
           if (!list) list = loadRanking("normal");
@@ -4904,19 +4970,19 @@
           const filtered = list.filter(e => (e && e.name || "").trim() !== "名無しのプレイヤー");
           const deduped = deduplicateRankings(filtered);
           named = deduped.map((e, i) => ({ ...e, _pos: i + 1 }));
-          myBadgeTime = fetchedBadgeTime;
+          myEarnedTiers = fetchedTiers;
 
           // キャッシュに保存（次回 10 秒以内の呼び出しで再利用）
-          _startRankingDataCache = { named, myBadgeTime };
+          _startRankingDataCache = { named, myEarnedTiers };
           _startRankingCacheAt = now;
         }
 
-        // v9.5 (2026-04-28)：myBadgeTime（live + snapshot 最速）から tier 算出。
-        //   - 取得成功 → 順位無関係にバッジ表示
-        //   - null（未登録 / クエリエラー / 該当なし）→ is-empty で非表示
-        //   - dev mode 時は snapshot 参照スキップ済（getMyBadgeTime 内）
+        // v10.2 (2026-04-28)：myEarnedTiers（達成 tier の Set）からバッジ描画。
+        //   - 1 個以上達成 → 該当 tier すべて点灯（コレクション型）
+        //   - 空 Set / null → is-empty で非表示
+        //   - dev mode 時は snapshot 参照スキップ済（getMyEarnedTiers 内）
         try {
-          if (badgeC) Achievements.renderInto(badgeC, myBadgeTime);
+          if (badgeC) Achievements.renderInto(badgeC, myEarnedTiers);
         } catch (_) { /* noop（描画失敗でランキング表示は止めない） */ }
 
         // ファーストビュー対策：モバイルは件数を絞ってボタンがスクロールなしで見えるように
@@ -5008,15 +5074,15 @@
         }
         footerEl.style.display = "";
 
-        // v9.5 (2026-04-28)：バッジソースを共通関数 getMyBadgeTime に統一。
-        //   - live (UUID 一致 entry) + snapshot (grandfather) の最速を返す
-        //   - dev mode 時は snapshot 参照スキップ（getMyBadgeTime 内で処理）
+        // v10.2 (2026-04-28)：バッジソースをコレクション型 getMyEarnedTiers に切り替え。
+        //   - live (UUID 一致 entry) + snapshot (grandfather) の **全達成 tier** を Set で返す
+        //   - dev mode 時は snapshot 参照スキップ（getMyEarnedTiers 内で処理）
         //   - スタート画面と完全に同じソースを使うので構造的に一致
         //   - フッターテキストの順位表示は myEntryInList ベースのまま不変
-        //   - 取得失敗（null）時は バッジ非表示（is-empty）
-        let myBadgeTime = null;
+        //   - 空 Set / 取得失敗時は バッジ非表示（is-empty）
+        let myEarnedTiers = null;
         try {
-          myBadgeTime = await getMyBadgeTime();
+          myEarnedTiers = await getMyEarnedTiers();
         } catch (_) { /* バッジ取得失敗してもフッター描画は継続 */ }
 
         const myName = (mine.name || "").trim();
@@ -5047,10 +5113,9 @@
           const bestTimeText = `<span class="urf-time">${myEntryInList.time.toFixed(2)}秒</span>`;
           const labelName = myName ? `${escapeHtml(myName)} さん` : `あなた`;
           urfText.innerHTML = `👤 ${deviceMark}${labelName}の最高記録：<span class="urf-pos">${pos}位</span> / ${bestTimeText}`;
-          // v9.5 (2026-04-28)：バッジは myBadgeTime（live + snapshot 最速）を採用。
-          //   フッターテキストは myEntryInList.time（順位表示用）、バッジは grandfather 込みの最速 time。
-          //   ケース 2 の軽微な乖離（過去 🏆 + 新 💎 = バッジは grandfather 経由の 🏆）は仕様通り許容。
-          if (badgeC) Achievements.renderInto(badgeC, myBadgeTime);
+          // v10.2 (2026-04-28)：フッターテキストは myEntryInList.time（順位表示用）、
+          //   バッジは myEarnedTiers（コレクション型・達成全 tier 点灯）。
+          if (badgeC) Achievements.renderInto(badgeC, myEarnedTiers);
           return;
         }
 
@@ -5072,15 +5137,15 @@
           } else {
             urfText.innerHTML = `👤 ${deviceMark}あなたは <span class="urf-pos">${rank}位</span> / ${localTimeText}`;
           }
-          // v9.5 (2026-04-28)：fallback パスでもバッジは getMyBadgeTime（grandfather 込み）統一
-          if (badgeC) Achievements.renderInto(badgeC, myBadgeTime);
+          // v10.2 (2026-04-28)：fallback パスでもバッジは getMyEarnedTiers（コレクション型）
+          if (badgeC) Achievements.renderInto(badgeC, myEarnedTiers);
           return;
         }
 
         // 万一画面ランキングが空（Firestore 取得失敗など）なら、最終フォールバックで集計
         urfText.innerHTML = `👤 ${deviceMark}あなたの最速タイム：${localTimeText}<br><span class="urf-muted">…順位を集計中…</span>`;
-        // v9.5 (2026-04-28)：最終 fallback もバッジは getMyBadgeTime 統一
-        if (badgeC) Achievements.renderInto(badgeC, myBadgeTime);
+        // v10.2 (2026-04-28)：最終 fallback もバッジは getMyEarnedTiers（コレクション型）
+        if (badgeC) Achievements.renderInto(badgeC, myEarnedTiers);
         const rank = await fetchMyGlobalRank(mine.time);
         if (Number.isFinite(rank)) {
           urfText.innerHTML = `👤 ${deviceMark}あなたは <span class="urf-pos">${rank}位</span> / ${localTimeText}`;
@@ -5337,11 +5402,26 @@
         //   timeSec が数値なら、その time から決まる tier 1 個だけを .is-earned にする。
         //   下位の易しい称号も上位の難しい称号も混ぜない（v8.1：BBQ さん 11.47 秒で 7 個出ていた事故の修正）。
         //   timeSec が null/undefined なら親に .is-empty を付けて非表示（仕様：ranking 未取得・該当無し → 非表示）。
-        function renderInto(containerEl, timeSec) {
+        // v10.2 (2026-04-28)：コレクション型バッジ表示。
+        //   入力 earned: Set<number> | Array<number> | number | null
+        //     - Set / Array: 達成した tier 番号の集合（1 個以上 → 全部点灯）
+        //     - number: 単一 tier（後方互換、Set にラップして扱う）
+        //     - null / undefined / 空 Set: バッジ非表示（is-empty）
+        //   v8.1〜v9.5 では「最速 1 個」だったが、v9.5 grandfathering で UUID + snapshot から
+        //   信頼できる「過去達成した tier の集合」が得られるため、「コレクション型」へ拡張。
+        //   例: 自分が 2.5 秒 (tier 1) と 9 秒 (tier 3) を達成 → 🏆 と 🥢 が同時点灯。
+        function renderInto(containerEl, earned) {
           if (!containerEl) return;
           containerEl.innerHTML = '';
-          const earnedTier = (typeof timeSec === 'number') ? tierFromTime(timeSec) : null;
-          if (earnedTier == null) {
+          // 入力を tierSet に正規化
+          let tierSet = null;
+          if (earned instanceof Set) tierSet = earned;
+          else if (Array.isArray(earned)) tierSet = new Set(earned);
+          else if (typeof earned === 'number') {
+            const t = tierFromTime(earned);
+            tierSet = (t != null) ? new Set([t]) : new Set();
+          }
+          if (!tierSet || tierSet.size === 0) {
             containerEl.classList.add('is-empty');
             return;
           }
@@ -5351,10 +5431,8 @@
             span.style.order = String(t.order);
             span.dataset.tier = String(t.tier);
             span.textContent = t.emoji;
-            // v8.1 (2026-04-27)：達成した tier ちょうど 1 個だけを表示。
-            //   旧 (v7/v8.0)：t.tier >= earnedTier で「易しい称号も全部表示」 → BBQ さん 11.47 秒で 7 個出る事故
-            //   新：t.tier === earnedTier で「現在のベストに対応する 1 個」のみ → 称号と完全一致
-            if (t.tier === earnedTier) span.classList.add('is-earned');
+            // 達成した tier すべてに is-earned を付ける（CSS の order で配置）
+            if (tierSet.has(t.tier)) span.classList.add('is-earned');
             containerEl.appendChild(span);
           });
           containerEl.classList.remove('is-empty');
@@ -6404,6 +6482,13 @@
         resultTime.textContent = cleared ? `${timeSec.toFixed(2)}秒` : "もう一杯、挑戦してみよう！";
         resultRank.textContent = info.rank;
         nameFormWrap.style.display = cleared ? "block" : "none";
+        // v9.5.1 (2026-04-28)：結果画面の名前入力欄に、前回「記録する」で使った名前をプリフィル。
+        //   shikonaInput が空の時のみセット（既に入力中の値は上書きしない）。
+        //   cleared=true（クリア時）のみ意味あり（入力欄が表示されるのは clear 時のみ）。
+        if (cleared && shikonaInput && !shikonaInput.value) {
+          const lastName = lsGet(LS_KEYS.lastName);
+          if (lastName) shikonaInput.value = lastName;
+        }
         // 記録（のみ）ボタンはクリア時のみ表示。タイムアウト時はランキング登録対象外。
         if (saveScoreBtn) {
           saveScoreBtn.style.display = cleared ? "" : "none";
@@ -6477,6 +6562,15 @@
 
       function saveScoreIfNeeded() {
         if (!pendingSave) return;
+        // v9.5.1 (2026-04-28)：入力された名前を先に決定して localStorage に保存
+        //   （次回結果画面表示時に shikonaInput をプリフィルするため）。
+        //   dev mode の早期 return より前に処理することで、dev/非 dev どちらの経路でも記憶される。
+        //   "名無しのプレイヤー"（空入力デフォルト）は保存対象外。
+        const nameRaw = shikonaInput.value.trim() || "名無しのプレイヤー";
+        const name = nameRaw.slice(0, 10);
+        if (name && name !== "名無しのプレイヤー") {
+          lsSet(LS_KEYS.lastName, name);
+        }
         // v9.6 (2026-04-27)：開発者モード時はスキップ（テストスコアでランキングを汚染しない）。
         //   pendingSave はクリアして、UI 上は記録した状態に戻す（ユーザーは何も気付かない）。
         if (isDevUser()) {
@@ -6485,8 +6579,6 @@
           pendingSave = null;
           return;
         }
-        const nameRaw = shikonaInput.value.trim() || "名無しのプレイヤー";
-        const name = nameRaw.slice(0, 10);
         const entry = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           name,
