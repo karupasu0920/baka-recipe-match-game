@@ -7094,10 +7094,11 @@
             return;
           }
           const elapsed = (now - _uramodeRoamState.startTime) / 1000;
-          // v10.3 fix v3 (2026-04-28)：速度を案 Q に強化。
-          //   初期倍率 1.5x、傾き 0.07/秒、上限 3.5（30 秒で 3.5x 到達）
+          // v10.3 fix v4 (2026-04-28)：加速をゆるやかに（傾き 0.07 → 0.05）。
+          //   初期倍率 1.5x、傾き 0.05/秒、上限 3.5（40 秒で cap 到達）
+          //   45 秒ゲームの終盤でも余裕を残す穏やかな加速カーブ。
           //   ランダムウォーク ±0.12（生命感アップ）
-          const speedMul = Math.min(3.5, 1.5 + elapsed * 0.07);
+          const speedMul = Math.min(3.5, 1.5 + elapsed * 0.05);
           const boardW = boardEl.clientWidth;
           const boardH = boardEl.clientHeight;
           const margin = cardSize / 2;
