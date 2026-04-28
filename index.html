@@ -3644,6 +3644,41 @@
       //   画像を上書き更新した際、この値を更新して git push すれば全ユーザーに強制反映される。
       //   例：次の更新時は '20260425' → '20260501' のように変える。
       const ASSET_VERSION = '20260425c';
+
+      // ── アプリ自動更新（v10.3 fix v13 / 2026-04-29） ───────────────────
+      //   GitHub Pages + ブラウザキャッシュで古い HTML が残ったままだと、
+      //   解放条件を満たしたユーザーの「裏」ボタンが出ないなどの不整合が起きる。
+      //   - APP_VERSION 定数 と repo ルートの version.json を同期させてデプロイ
+      //   - 起動時 + 5 分ごとに version.json を fetch（cache: 'no-store'）
+      //   - 不一致なら静かにフルリロード（クエリ ?v=<ts> でキャッシュ強制バイパス）
+      //   - ゲーム中（gameRunning / lockInput / pendingSave）は reload しない
+      //   ※ デプロイ手順：APP_VERSION と version.json の両方を同じ値に更新して push
+      const APP_VERSION = "v12";
+      async function checkForAppUpdate() {
+        // ゲーム中・記録未送信・入力ロック中は reload しない
+        try {
+          if (typeof gameRunning !== 'undefined' && gameRunning) return;
+          if (typeof lockInput !== 'undefined' && lockInput) return;
+          if (typeof pendingSave !== 'undefined' && pendingSave) return;
+        } catch (_) { /* 変数未定義段階なら継続 */ }
+        try {
+          const res = await fetch('version.json?_=' + Date.now(), { cache: 'no-store' });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data && typeof data.version === 'string' && data.version !== APP_VERSION) {
+            console.log(`[Update] new version ${data.version} (current ${APP_VERSION}) — reloading`);
+            const ts = Date.now();
+            const path = window.location.pathname || '/';
+            window.location.replace(path + '?v=' + ts + (window.location.hash || ''));
+          }
+        } catch (_) { /* network error or invalid JSON — silently skip */ }
+      }
+      // 起動 1 度 + 5 分間隔。CDN / ブラウザキャッシュ越しでも 5 分以内に同期する。
+      document.addEventListener('DOMContentLoaded', () => {
+        checkForAppUpdate();
+        setInterval(checkForAppUpdate, 5 * 60 * 1000);
+      });
+
       function withV(path) {
         if (!path || typeof path !== 'string') return path;
         if (path.startsWith('data:') || path.startsWith('blob:')) return path; // data/blob URL はそのまま
