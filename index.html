@@ -6754,6 +6754,9 @@
       function endGame(cleared) {
         gameRunning = false;
         if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+        // v10.3 Phase 6 (2026-04-28)：裏モード Roaming RAF も停止。gameRunning=false でも tick 内で
+        //   早期 return するので二重保険だが、明示的に止めることで RAF を即座に解放。
+        try { stopUramodeRoaming(); } catch (_) { /* noop */ }
         stopAudioLoops();
         Audio.fadeOutBGM();
         hideMatchedFood();
@@ -6920,6 +6923,8 @@
         const seekBgmToStart = options && options.seekBgmToStart === true;
         // ── 旧ゲームを確実に停止（RAF IDで確実キャンセル） ──────────────
         if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+        // v10.3 Phase 6 (2026-04-28)：旧裏モード Roaming RAF も停止（旧 card 参照を保持してるため）
+        try { stopUramodeRoaming(); } catch (_) { /* noop */ }
         stopAudioLoops();
         gameRunning = false;
         sessionId++;                   // 旧drawBoard RAF・setTimeout を無効化
@@ -6969,6 +6974,11 @@
         gameRunning = true;
         rafId = requestAnimationFrame(ts => gameLoop(ts, gen));
         try { danceCharacter.start(); } catch (_) { /* noop */ }
+        // v10.3 Phase 6 (2026-04-28)：裏モード時のみゴキブリ Move を起動。
+        //   gameMode は既に setupAndStart 引数で更新済み。startUramodeRoaming は内部で再 guard。
+        if (gameMode === "ura") {
+          try { startUramodeRoaming(); } catch (_) { /* noop */ }
+        }
       }
 
       function startNormal() {
@@ -7012,6 +7022,85 @@
       document.addEventListener('DOMContentLoaded', () => {
         attachUramodeSpotlightTapFollow();
       });
+
+      // ── 裏モード ゴキブリ Move v10.3 Phase 6 (2026-04-28) ────────────
+      //   ゲーム中、缶バッジが盤面を動き回る演出。既存 drawBoard の left/top inline 値を
+      //   毎フレーム更新するシンプルな方式。.card の transform: translate(-50%,-50%) rotate(--tilt)
+      //   は CSS 側でそのまま動作するため、追加の CSS 変更は不要。
+      //
+      //   - 各カードに速度ベクトル (vx, vy) を持たせる（初期はランダム、毎フレ微調整で生命感）
+      //   - 盤面の clientWidth/Height で跳ね返り判定
+      //   - 経過時間に応じて速度倍率を 1.0 → 2.5x まで段階上昇（30 秒で頭打ち）
+      //   - .matched / .shaking クラス中のカードは更新スキップ（既存アニメと衝突回避）
+      //   - .isConnected 切れカード（ボードクリア後の旧参照）も自動スキップ
+      //   - gameMode !== "ura" or !gameRunning で停止
+      const _uramodeRoamState = {
+        rafId: null,
+        cards: [],
+        startTime: 0,
+      };
+      function startUramodeRoaming() {
+        if (gameMode !== "ura") return;
+        stopUramodeRoaming();
+        const boardEl = document.getElementById('board');
+        if (!boardEl) return;
+        const buttons = boardEl.querySelectorAll('.card');
+        if (!buttons.length) return;
+        const cardSizeStr = boardEl.style.getPropertyValue('--card-size');
+        const cardSize = parseFloat(cardSizeStr) || 60;
+        _uramodeRoamState.cards = Array.from(buttons).map(el => ({
+          el,
+          x: parseFloat(el.style.left) || 0,
+          y: parseFloat(el.style.top)  || 0,
+          vx: (Math.random() - 0.5) * 2.0,  // -1.0〜1.0 px/frame
+          vy: (Math.random() - 0.5) * 2.0,
+        }));
+        _uramodeRoamState.startTime = performance.now();
+        const tick = (now) => {
+          if (gameMode !== "ura" || !gameRunning) {
+            _uramodeRoamState.rafId = null;
+            return;
+          }
+          const elapsed = (now - _uramodeRoamState.startTime) / 1000;
+          // 速度倍率: 1.0 + elapsed * 0.05, 上限 2.5（30 秒で 2.5x に到達）
+          const speedMul = Math.min(2.5, 1.0 + elapsed * 0.05);
+          const boardW = boardEl.clientWidth;
+          const boardH = boardEl.clientHeight;
+          const margin = cardSize / 2;
+          _uramodeRoamState.cards.forEach(c => {
+            if (!c.el.isConnected) return;
+            // matched / shaking 中は位置固定
+            if (c.el.classList.contains('matched') || c.el.classList.contains('shaking')) return;
+            // ランダムウォーク（生命感）
+            c.vx += (Math.random() - 0.5) * 0.08;
+            c.vy += (Math.random() - 0.5) * 0.08;
+            // 速度上限
+            const maxV = 2.2;
+            if (c.vx >  maxV) c.vx =  maxV;
+            if (c.vx < -maxV) c.vx = -maxV;
+            if (c.vy >  maxV) c.vy =  maxV;
+            if (c.vy < -maxV) c.vy = -maxV;
+            c.x += c.vx * speedMul;
+            c.y += c.vy * speedMul;
+            // 端で跳ね返り
+            if (c.x < margin)            { c.x = margin;            c.vx = -c.vx; }
+            if (c.x > boardW - margin)   { c.x = boardW - margin;   c.vx = -c.vx; }
+            if (c.y < margin)            { c.y = margin;            c.vy = -c.vy; }
+            if (c.y > boardH - margin)   { c.y = boardH - margin;   c.vy = -c.vy; }
+            c.el.style.left = `${c.x}px`;
+            c.el.style.top  = `${c.y}px`;
+          });
+          _uramodeRoamState.rafId = requestAnimationFrame(tick);
+        };
+        _uramodeRoamState.rafId = requestAnimationFrame(tick);
+      }
+      function stopUramodeRoaming() {
+        if (_uramodeRoamState.rafId !== null) {
+          cancelAnimationFrame(_uramodeRoamState.rafId);
+          _uramodeRoamState.rafId = null;
+        }
+        _uramodeRoamState.cards = [];
+      }
 
       function startDaily() {
         const played = lsGet(LS_KEYS.dailyPlayedDate);
