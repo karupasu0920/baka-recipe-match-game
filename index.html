@@ -4348,6 +4348,59 @@
         }
       }
 
+      // ── バッジ用「自分のベストタイム」共通関数（v9.5 / 2026-04-28） ─────────
+      //   スタート画面とランキングモーダル両方のバッジ判定で使う唯一の関数。
+      //   両画面で必ず同じ結果が出ることを構造的に保証する。
+      //
+      //   返す time は 2 つのソースの最速:
+      //     1. live: ranking から UUID 一致した自分のエントリの最速タイム（v9 既存）
+      //     2. snapshot: name_uuid_binding で「自分の uuid と name が紐付いている」場合のみ、
+      //        ranking_snapshot_pre_v9_5 内の同名エントリの最速タイム（grandfathering）
+      //
+      //   dev mode 中は snapshot を見ない（テストプレイで grandfather バッジを取れないように）。
+      //   live は dev mode でも見る（自分の UUID で記録した entry はあるかも、参照だけは安全）。
+      //
+      //   戻り値: number (秒) | null（バッジ非表示）
+      async function getMyBadgeTime() {
+        const myUuid = getOrCreateUserUuid();
+        if (!myUuid) return null;
+
+        // 1) live: UUID 一致 entry の最速タイム
+        let liveBest = null;
+        try {
+          const liveEntry = await fetchMyBestEntryFromCloud();
+          if (liveEntry && typeof liveEntry.time === 'number') {
+            liveBest = liveEntry.time;
+          }
+        } catch (_) { /* live 取得失敗は致命的ではない */ }
+
+        // 2) snapshot: 紐付け確認したうえで grandfathering
+        let snapshotBest = null;
+        if (!isDevUser()) {
+          const mine = loadMyBestEntry();
+          const myName = (mine && mine.name) ? String(mine.name).trim() : "";
+          if (myName) {
+            try {
+              const binding = await getNameBinding(myName);
+              if (binding && binding.uuid === myUuid) {
+                // 自分が紐付け済みの名前 → snapshot 内の同名エントリ参照可
+                const snap = await db.collection("ranking_snapshot_pre_v9_5")
+                  .where("name", "==", myName)
+                  .get();
+                const times = snap.docs.map(d => d.data())
+                  .filter(d => d && typeof d.time === 'number')
+                  .map(d => d.time);
+                if (times.length) snapshotBest = Math.min(...times);
+              }
+            } catch (_) { /* snapshot 取得失敗は致命的ではない */ }
+          }
+        }
+
+        // 3) 最速採用
+        const candidates = [liveBest, snapshotBest].filter(t => typeof t === 'number');
+        return candidates.length ? Math.min(...candidates) : null;
+      }
+
       // ── Firestore ランキング TOP取得（「名前付きで100件」ベースのページング） ──
       //   仕様：
       //     1ページ = 名前付きエントリ 100 件。最大 3 ページ（= 名前付き 300 件）で打ち止め。
@@ -4825,20 +4878,23 @@
         startRankList.appendChild(loading);
 
         // v9.6 (2026-04-27)：10 秒キャッシュをチェック。ヒットすれば fetch を完全スキップ。
+        // v9.5 (2026-04-28)：キャッシュ対象を myCloudEntry → myBadgeTime（getMyBadgeTime の結果）に変更。
+        //   getMyBadgeTime は live (UUID 一致) + snapshot (grandfather) の最速を返す共通関数。
+        //   両画面で同じ time を使うことで、フッターとバッジが構造的に一致する。
         const now = Date.now();
-        let named, myCloudEntry;
+        let named, myBadgeTime;
         if (_startRankingDataCache && (now - _startRankingCacheAt) < START_RANKING_CACHE_MS) {
-          ({ named, myCloudEntry } = _startRankingDataCache);
+          ({ named, myBadgeTime } = _startRankingDataCache);
         } else {
           // Firestore から取得（失敗時は localStorage）。名無し除外＋重複削除を経るので
           // 元データは多めに取る。上位を常連プレイヤーが連投で占めるケース
           // （名前付き 100 件→ユニーク 6 名）でも TOP5/8 表示を埋められるよう 200 件確保。
-          // v8.3 (2026-04-27)：バッジ用に「自分のエントリ 1 件」も並列で fetch。
-          //   旧仕様は named 配列から findMyTimeIn で探していたが、上位 200 raw 内に自分が居ないと
-          //   永遠に未表示になる事故があったため、順位無関係に取れる別経路に切り替え。
-          const [listOrNull, fetchedMyEntry] = await Promise.all([
+          // v9.5 (2026-04-28)：バッジソースを fetchMyBestEntryFromCloud（live のみ）から
+          //   getMyBadgeTime（live + snapshot grandfather）に切り替え。これで過去ベスト持ちの
+          //   ユーザー（例：のじま王さん 2.73秒）が再プレイ時に過去のベストでバッジ取れる。
+          const [listOrNull, fetchedBadgeTime] = await Promise.all([
             loadRankingCloud(200),
-            fetchMyBestEntryFromCloud(),
+            getMyBadgeTime(),
           ]);
           let list = listOrNull;
           if (!list) list = loadRanking("normal");
@@ -4848,22 +4904,19 @@
           const filtered = list.filter(e => (e && e.name || "").trim() !== "名無しのプレイヤー");
           const deduped = deduplicateRankings(filtered);
           named = deduped.map((e, i) => ({ ...e, _pos: i + 1 }));
-          myCloudEntry = fetchedMyEntry;
+          myBadgeTime = fetchedBadgeTime;
 
           // キャッシュに保存（次回 10 秒以内の呼び出しで再利用）
-          _startRankingDataCache = { named, myCloudEntry };
+          _startRankingDataCache = { named, myBadgeTime };
           _startRankingCacheAt = now;
         }
 
-        // v8.3 (2026-04-27)：バッジは myCloudEntry（自分専用クエリ）の time から決める。
-        //   - myCloudEntry 取得成功 → 順位無関係にバッジ表示（rank 68 でも 500+ でも OK）
-        //   - 取得失敗（未登録 / クエリエラー / id&name 両方ヒットせず） → null → is-empty で非表示
-        //   - named 配列内 findMyTimeIn は使わない（rank 200 圏外で永遠に出ない事故の回避が目的）
+        // v9.5 (2026-04-28)：myBadgeTime（live + snapshot 最速）から tier 算出。
+        //   - 取得成功 → 順位無関係にバッジ表示
+        //   - null（未登録 / クエリエラー / 該当なし）→ is-empty で非表示
+        //   - dev mode 時は snapshot 参照スキップ済（getMyBadgeTime 内）
         try {
-          const myTimeForBadge = (myCloudEntry && typeof myCloudEntry.time === 'number')
-            ? myCloudEntry.time
-            : null;
-          if (badgeC) Achievements.renderInto(badgeC, myTimeForBadge);
+          if (badgeC) Achievements.renderInto(badgeC, myBadgeTime);
         } catch (_) { /* noop（描画失敗でランキング表示は止めない） */ }
 
         // ファーストビュー対策：モバイルは件数を絞ってボタンがスクロールなしで見えるように
@@ -4955,6 +5008,17 @@
         }
         footerEl.style.display = "";
 
+        // v9.5 (2026-04-28)：バッジソースを共通関数 getMyBadgeTime に統一。
+        //   - live (UUID 一致 entry) + snapshot (grandfather) の最速を返す
+        //   - dev mode 時は snapshot 参照スキップ（getMyBadgeTime 内で処理）
+        //   - スタート画面と完全に同じソースを使うので構造的に一致
+        //   - フッターテキストの順位表示は myEntryInList ベースのまま不変
+        //   - 取得失敗（null）時は バッジ非表示（is-empty）
+        let myBadgeTime = null;
+        try {
+          myBadgeTime = await getMyBadgeTime();
+        } catch (_) { /* バッジ取得失敗してもフッター描画は継続 */ }
+
         const myName = (mine.name || "").trim();
         const deviceMark = (mine.device === 'pc' || detectDevice() === 'pc')
           ? `<span class="device-mark" title="PCからプレイ" aria-label="PCからプレイ">🖥️</span> `
@@ -4983,8 +5047,10 @@
           const bestTimeText = `<span class="urf-time">${myEntryInList.time.toFixed(2)}秒</span>`;
           const labelName = myName ? `${escapeHtml(myName)} さん` : `あなた`;
           urfText.innerHTML = `👤 ${deviceMark}${labelName}の最高記録：<span class="urf-pos">${pos}位</span> / ${bestTimeText}`;
-          // v8 (2026-04-27)：フッターが命中した entry の time をバッジソースに使う（完全同期）
-          if (badgeC) Achievements.renderInto(badgeC, myEntryInList.time);
+          // v9.5 (2026-04-28)：バッジは myBadgeTime（live + snapshot 最速）を採用。
+          //   フッターテキストは myEntryInList.time（順位表示用）、バッジは grandfather 込みの最速 time。
+          //   ケース 2 の軽微な乖離（過去 🏆 + 新 💎 = バッジは grandfather 経由の 🏆）は仕様通り許容。
+          if (badgeC) Achievements.renderInto(badgeC, myBadgeTime);
           return;
         }
 
@@ -5006,16 +5072,15 @@
           } else {
             urfText.innerHTML = `👤 ${deviceMark}あなたは <span class="urf-pos">${rank}位</span> / ${localTimeText}`;
           }
-          // v8 (2026-04-27)：fallback パスではフッターが mine.time を表示するのでバッジも mine.time に揃える
-          //   （仕様「フッターと表示内容が乖離してはいけない」を厳守）
-          if (badgeC) Achievements.renderInto(badgeC, mine.time);
+          // v9.5 (2026-04-28)：fallback パスでもバッジは getMyBadgeTime（grandfather 込み）統一
+          if (badgeC) Achievements.renderInto(badgeC, myBadgeTime);
           return;
         }
 
         // 万一画面ランキングが空（Firestore 取得失敗など）なら、最終フォールバックで集計
         urfText.innerHTML = `👤 ${deviceMark}あなたの最速タイム：${localTimeText}<br><span class="urf-muted">…順位を集計中…</span>`;
-        // v8 (2026-04-27)：最終 fallback 系もフッターは mine.time を見せるのでバッジ同期
-        if (badgeC) Achievements.renderInto(badgeC, mine.time);
+        // v9.5 (2026-04-28)：最終 fallback もバッジは getMyBadgeTime 統一
+        if (badgeC) Achievements.renderInto(badgeC, myBadgeTime);
         const rank = await fetchMyGlobalRank(mine.time);
         if (Number.isFinite(rank)) {
           urfText.innerHTML = `👤 ${deviceMark}あなたは <span class="urf-pos">${rank}位</span> / ${localTimeText}`;
