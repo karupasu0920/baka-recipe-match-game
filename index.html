@@ -4974,10 +4974,13 @@
       //   問題が発生した（実例：かぼすタイム ペヤング称号 13.22秒 / 13.23秒）。
       //   PC + モバイル両方で遊んだ人を 1 行に統合する副作用は、🖥️ マーク（残ったエントリの
       //   device に依存）で device の情報自体は残すため許容。
+      // v10.3 (2026-04-28)：mode をキーに追加。裏モードと通常モードの同一人物を別行で残す
+      //   （別の難易度なので別評価が公平）。mode 無し既存エントリは "normal" として扱う（後方互換）。
       function getEntryUniqueKey(data) {
         const name = (data && data.name != null) ? String(data.name) : 'unknown';
         const rank = (data && data.rank != null) ? String(data.rank) : 'unknown';
-        return `${name}__${rank}`;
+        const mode = (data && data.mode === 'ura') ? 'ura' : 'normal';
+        return `${name}__${rank}__${mode}`;
       }
       function deduplicateRankings(list) {
         if (!Array.isArray(list)) return [];
@@ -5183,8 +5186,10 @@
         const deviceMark = entry.device === 'pc'
           ? ` <span class="device-mark" title="PCからプレイ" aria-label="PCからプレイ">🖥️</span>`
           : "";
+        // v10.3 (2026-04-28)：裏モードエントリは名前頭に 🎭 を付与（mode === "ura" のみ）。
+        const uraIcon = entry.mode === "ura" ? "🎭 " : "";
         li.innerHTML =
-          `<span>${medal} ${entry.name}${deviceMark}</span>` +
+          `<span>${medal} ${uraIcon}${entry.name}${deviceMark}</span>` +
           `<span style="flex:1;text-align:center;font-size:0.88em;color:#ffe47a;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">【${entryRank}】</span>` +
           `<span style="white-space:nowrap;">${entry.time.toFixed(2)}秒</span>`;
         return li;
@@ -5265,6 +5270,24 @@
           if (badgeC) Achievements.renderInto(badgeC, myEarnedTiers);
         } catch (_) { /* noop（描画失敗でランキング表示は止めない） */ }
 
+        // v10.3 Phase 8 (2026-04-28)：裏モード解放条件 (a) の TOP20 判定をここで更新。
+        //   通常モードのランキング（mode === "ura" を除外）で自分の UUID が上位 20 位以内かを見る。
+        //   結果は _uramodeTop20Cached に保存し、isUramodeUnlocked() が参照する。
+        //   updateUramodeBtnVisibility() で「裏」ボタンの表示も即時更新。
+        try {
+          const myUuid = getOrCreateUserUuid();
+          if (myUuid && Array.isArray(named)) {
+            const normalOnly = named.filter(e => !e || e.mode !== "ura");
+            const myIdx = normalOnly.findIndex(e => e && e.uuid === myUuid);
+            _uramodeTop20Cached = (myIdx >= 0 && myIdx < 20);
+          } else {
+            _uramodeTop20Cached = false;
+          }
+          updateUramodeBtnVisibility();
+        } catch (_) {
+          _uramodeTop20Cached = null;
+        }
+
         // ファーストビュー対策：モバイルは件数を絞ってボタンがスクロールなしで見えるように
         const isMobileNow = window.innerWidth < 768;
         const targetCount = isMobileNow ? 5 : 8;
@@ -5314,9 +5337,13 @@
         const deviceMark = entry.device === 'pc'
           ? `<span class="device-mark" title="PCからプレイ" aria-label="PCからプレイ">🖥️</span>`
           : "";
+        // v10.3 (2026-04-28)：裏モードエントリは名前頭に 🎭 を付与（mode === "ura" のみ）。
+        const uraIcon = entry.mode === "ura"
+          ? `<span class="ura-mark" title="裏モード" aria-label="裏モード">🎭</span> `
+          : "";
         li.innerHTML =
           `<span class="r-pos">${posLabel}</span>` +
-          `<span class="r-main">${escapeHtml(entry.name || "")}${deviceMark}<span class="r-rank">【${escapeHtml(entryRank)}】</span></span>` +
+          `<span class="r-main">${uraIcon}${escapeHtml(entry.name || "")}${deviceMark}<span class="r-rank">【${escapeHtml(entryRank)}】</span></span>` +
           `<span class="r-time">${entry.time.toFixed(2)}秒</span>`;
         return li;
       }
