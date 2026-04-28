@@ -2892,7 +2892,8 @@
         padding: 0 14px;
         background: #000;
         color: #fff;
-        border: 1px solid #444;
+        /* v10.3 fix (2026-04-28)：ロゴらしさ強化のため赤枠 2px に */
+        border: 2px solid #cc0000;
         font-size: 1.1em;
         font-weight: bold;
         font-family: inherit;
@@ -2929,24 +2930,35 @@
         border: 2px solid #cc0000 !important;
         box-shadow: 0 0 12px rgba(204, 0, 0, 0.6) !important;
       }
-      /* 上部「裏モード」大見出し */
+      /* 「裏モード」大見出し（v10.3 fix Phase 4 / 2026-04-28）。
+         位置 P1: matchedFoodPanel 領域の中央に重ねる（z-index で panel 内容の上）。
+         フォント: 揺れるネオン（Impact 系 + 強烈な赤グロー + 不規則な明滅）。 */
       #uramodeHeading {
         display: none;
         position: fixed;
-        top: 8px;
+        /* matchedFoodPanel と同じ垂直中央 */
+        top: calc(10px + var(--timer-size) + var(--mfp-h) / 2 + 4px);
         left: 50%;
-        transform: translateX(-50%);
-        font-size: 1.3em;
-        font-weight: bold;
-        color: #fff;
-        letter-spacing: 0.4em;
-        text-shadow: 0 0 8px #cc0000, 0 0 16px #cc0000;
-        z-index: 60;
+        transform: translate(-50%, -50%);
+        font-family: 'Impact', 'YuGothic', sans-serif;
+        font-weight: 900;
+        font-size: 2em;
+        color: #ff0000;
+        text-shadow: 0 0 5px #ff0000, 0 0 10px #ff0000, 0 0 20px #ff0000, 0 0 40px #ff0000;
+        letter-spacing: 0.3em;
+        z-index: 60;        /* matchedFoodPanel (z:50) より上 */
         pointer-events: none;
-        opacity: 0.9;
         white-space: nowrap;
+        animation: uramode-heading-flicker 1.5s ease-in-out infinite;
       }
       body[data-mode="ura"] #uramodeHeading { display: block; }
+      @keyframes uramode-heading-flicker {
+        0%, 100% { opacity: 1;   text-shadow: 0 0 5px #ff0000, 0 0 10px #ff0000, 0 0 20px #ff0000, 0 0 40px #ff0000; }
+        20%      { opacity: 0.3; text-shadow: 0 0 2px #ff0000; }
+        22%      { opacity: 1;   text-shadow: 0 0 5px #ff0000, 0 0 10px #ff0000, 0 0 20px #ff0000; }
+        60%      { opacity: 0.7; }
+        62%      { opacity: 1; }
+      }
       /* マャーちゃんも少し暗く（裏モードの不気味さ） */
       body[data-mode="ura"] .dance-character {
         filter: brightness(0.55) saturate(1.3) hue-rotate(-10deg);
@@ -2973,21 +2985,28 @@
         inset: 0;
         z-index: 50;
         pointer-events: none;
-        background: rgba(0, 0, 0, 0.6);
-        /* 円の中は透過 → カード見える / 円の外は不透明 → 上で塗られた半透明黒が見える */
+        /* v10.3 fix Phase 5 (2026-04-28)：コントラスト大幅強化（0.6 → 0.95）。
+           ライト外はほぼ真っ暗、薄っすら判別レベル。 */
+        background: rgba(0, 0, 0, 0.95);
+        /* 円の中: 完全クリア（〜40% 半径まで透明維持）
+           円外への遷移: 中間グラデを置いて自然に減衰
+           最外: 完全黒で overlay フル可視化 */
         -webkit-mask-image: radial-gradient(
           circle 125px at var(--uspot-x) var(--uspot-y),
           transparent 0%,
-          transparent 60%,
+          transparent 40%,
+          rgba(0, 0, 0, 0.5) 70%,
           black 100%
         );
         mask-image: radial-gradient(
           circle 125px at var(--uspot-x) var(--uspot-y),
           transparent 0%,
-          transparent 60%,
+          transparent 40%,
+          rgba(0, 0, 0, 0.5) 70%,
           black 100%
         );
-        animation: uramode-spotlight-orbit 8s ease-in-out infinite alternate;
+        /* v10.3 fix Phase 5 (2026-04-28)：軌道速度 2 倍（8s → 4s） */
+        animation: uramode-spotlight-orbit 4s ease-in-out infinite alternate;
         transition: --uspot-x 0.4s ease-out, --uspot-y 0.4s ease-out;
       }
       body[data-mode="ura"] #uramodeSpotlight { display: block; }
