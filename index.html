@@ -5093,11 +5093,21 @@
         // v9 (2026-04-27)：画面ランキング中で「自分のエントリ」を UUID 完全一致で探す。
         //   v8.x の id→name→time チェーンは同名他人混同リスクがあり廃止。
         //   top100Filtered は time 昇順なので find 最初のヒット = 自分のベストタイム行。
+        // v9.5.2 (2026-04-28)：v9 リリース前の登録者（uuid フィールド無し）対応のため、
+        //   UUID 一致が失敗したら mine.id 一致を fallback として試す。
+        //   mine.id は localStorage（自分のブラウザ内）の記録のみ参照、entry.id は Firestore で
+        //   一意なので、他人と衝突する可能性は実質ゼロ（同名他人問題を再発させない）。
+        //   この fallback はフッターテキスト表示のみ影響し、バッジは別経路（getMyEarnedTiers）で
+        //   引き続き UUID + binding ベースで動作（仕様分離）。
         let myEntryInList = null;
         if (Array.isArray(top100Filtered) && top100Filtered.length) {
           const myUuid = getOrCreateUserUuid();
           if (myUuid) {
             myEntryInList = top100Filtered.find(e => e && e.uuid === myUuid) || null;
+          }
+          // v9.5.2 fallback: pre-v9 登録者向けの id 一致
+          if (!myEntryInList && mine.id && !/^auto_/.test(mine.id)) {
+            myEntryInList = top100Filtered.find(e => e && e.id === mine.id) || null;
           }
         }
 
