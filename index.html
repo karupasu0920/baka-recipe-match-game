@@ -2930,34 +2930,34 @@
         border: 2px solid #cc0000 !important;
         box-shadow: 0 0 12px rgba(204, 0, 0, 0.6) !important;
       }
-      /* 「裏モード」大見出し（v10.3 fix Phase 4 / 2026-04-28）。
-         位置 P1: matchedFoodPanel 領域の中央に重ねる（z-index で panel 内容の上）。
-         フォント: 揺れるネオン（Impact 系 + 強烈な赤グロー + 不規則な明滅）。 */
+      /* 「裏モード」大見出し（v10.3 fix v2 / 2026-04-28）。
+         位置: タイマーの上（top:4px）。あそびかた枠（matchedFoodPanel）とは縦位置で完全分離。
+         フォント: 太字 sans-serif + 4 方向の黒縁 + 小さな赤グロー（ブラー大幅削減）。
+         アニメ: 0.5 秒周期の急ブリンク（緊急警告表示風）。揺れ無し。 */
       #uramodeHeading {
         display: none;
         position: fixed;
-        /* matchedFoodPanel と同じ垂直中央 */
-        top: calc(10px + var(--timer-size) + var(--mfp-h) / 2 + 4px);
+        top: 4px;
         left: 50%;
-        transform: translate(-50%, -50%);
+        transform: translate(-50%, 0);
         font-family: 'Impact', 'YuGothic', sans-serif;
         font-weight: 900;
-        font-size: 2em;
+        font-size: 1.5em;
         color: #ff0000;
-        text-shadow: 0 0 5px #ff0000, 0 0 10px #ff0000, 0 0 20px #ff0000, 0 0 40px #ff0000;
-        letter-spacing: 0.3em;
-        z-index: 60;        /* matchedFoodPanel (z:50) より上 */
+        letter-spacing: 0.4em;
+        text-shadow:
+          2px 2px 0 #000, -2px -2px 0 #000,
+          2px -2px 0 #000, -2px 2px 0 #000,
+          0 0 4px rgba(255, 0, 0, 0.5);
+        z-index: 60;
         pointer-events: none;
         white-space: nowrap;
-        animation: uramode-heading-flicker 1.5s ease-in-out infinite;
+        animation: uramode-heading-blink 0.5s infinite;
       }
       body[data-mode="ura"] #uramodeHeading { display: block; }
-      @keyframes uramode-heading-flicker {
-        0%, 100% { opacity: 1;   text-shadow: 0 0 5px #ff0000, 0 0 10px #ff0000, 0 0 20px #ff0000, 0 0 40px #ff0000; }
-        20%      { opacity: 0.3; text-shadow: 0 0 2px #ff0000; }
-        22%      { opacity: 1;   text-shadow: 0 0 5px #ff0000, 0 0 10px #ff0000, 0 0 20px #ff0000; }
-        60%      { opacity: 0.7; }
-        62%      { opacity: 1; }
+      @keyframes uramode-heading-blink {
+        0%,  49%  { opacity: 1; }
+        50%, 100% { opacity: 0.3; }
       }
       /* マャーちゃんも少し暗く（裏モードの不気味さ） */
       body[data-mode="ura"] .dance-character {
@@ -2985,29 +2985,18 @@
         inset: 0;
         z-index: 50;
         pointer-events: none;
-        /* v10.3 fix Phase 5 (2026-04-28)：コントラスト大幅強化（0.6 → 0.95）。
-           ライト外はほぼ真っ暗、薄っすら判別レベル。 */
-        background: rgba(0, 0, 0, 0.95);
-        /* 円の中: 完全クリア（〜40% 半径まで透明維持）
-           円外への遷移: 中間グラデを置いて自然に減衰
-           最外: 完全黒で overlay フル可視化 */
-        -webkit-mask-image: radial-gradient(
-          circle 125px at var(--uspot-x) var(--uspot-y),
+        /* v10.3 fix v2 (2026-04-28)：mask-image 方式廃止 → radial-gradient を直接 background に。
+           シンプル化 + ユーザー指定のコントラスト調整。
+           中心: 完全クリア（缶バッジ鮮明）/ 30% 半径: 30% 暗 / 端: 70% 暗。
+           暗い部分でも「薄っすら缶バッジの存在は分かる」レベル。 */
+        background: radial-gradient(
+          circle 250px at var(--uspot-x) var(--uspot-y),
           transparent 0%,
-          transparent 40%,
-          rgba(0, 0, 0, 0.5) 70%,
-          black 100%
+          rgba(0, 0, 0, 0.3) 30%,
+          rgba(0, 0, 0, 0.7) 100%
         );
-        mask-image: radial-gradient(
-          circle 125px at var(--uspot-x) var(--uspot-y),
-          transparent 0%,
-          transparent 40%,
-          rgba(0, 0, 0, 0.5) 70%,
-          black 100%
-        );
-        /* v10.3 fix Phase 5 (2026-04-28)：軌道速度 2 倍（8s → 4s） */
+        /* 軌道速度 2 倍（8s → 4s）。タップ追従削除に伴い transition も削除（keyframe 補間と干渉するため） */
         animation: uramode-spotlight-orbit 4s ease-in-out infinite alternate;
-        transition: --uspot-x 0.4s ease-out, --uspot-y 0.4s ease-out;
       }
       body[data-mode="ura"] #uramodeSpotlight { display: block; }
 
@@ -7051,36 +7040,10 @@
         setupAndStart("ura", { seekBgmToStart: true });
       }
 
-      // v10.3 Phase 5 (2026-04-28)：スポットライトのタップ追従。
-      //   gameScreen でのタップ位置に対し、--uspot-x/y を %（viewport 比）で上書き。
-      //   軌道 animation を一時停止 → 1.5 秒後に inline スタイルを解除して通常軌道に復帰。
-      //   gameMode === "ura" 以外では即 return（通常モードに影響ゼロ）。
-      let _uramodeSpotResumeTimer = null;
-      function attachUramodeSpotlightTapFollow() {
-        const screen = document.getElementById('gameScreen');
-        if (!screen) return;
-        screen.addEventListener('pointerdown', (e) => {
-          if (gameMode !== 'ura') return;
-          const sp = document.getElementById('uramodeSpotlight');
-          if (!sp) return;
-          const xPct = (e.clientX / window.innerWidth)  * 100;
-          const yPct = (e.clientY / window.innerHeight) * 100;
-          sp.style.animationPlayState = 'paused';
-          sp.style.setProperty('--uspot-x', `${xPct.toFixed(2)}%`);
-          sp.style.setProperty('--uspot-y', `${yPct.toFixed(2)}%`);
-          if (_uramodeSpotResumeTimer) clearTimeout(_uramodeSpotResumeTimer);
-          _uramodeSpotResumeTimer = setTimeout(() => {
-            sp.style.animationPlayState = '';
-            sp.style.removeProperty('--uspot-x');
-            sp.style.removeProperty('--uspot-y');
-            _uramodeSpotResumeTimer = null;
-          }, 1500);
-        }, { passive: true });
-      }
-      // 起動時に 1 度だけ登録（イディオム）。listener 自体は常に存在するが gameMode === 'ura' 以外は早期 return。
-      document.addEventListener('DOMContentLoaded', () => {
-        attachUramodeSpotlightTapFollow();
-      });
+      // v10.3 fix v2 (2026-04-28)：スポットライトのタップ追従機能は削除。
+      //   理由: 缶バッジクリック時にスポットライトが一時停止する副作用があり、ゲーム体験が
+      //   分断された。純粋な周期軌道（CSS keyframes）のみで動かす。listener 自体ない方が
+      //   壊れにくい。元コードは git history（Phase 5 commit）に残っている。
 
       // ── 裏モード ゴキブリ Move v10.3 Phase 6 (2026-04-28) ────────────
       //   ゲーム中、缶バッジが盤面を動き回る演出。既存 drawBoard の left/top inline 値を
