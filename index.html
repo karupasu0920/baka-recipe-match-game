@@ -4219,11 +4219,20 @@
       // ── ランキング登録済みか判定（「あなたは X位」表示の出し分け用） ──
       //   - registered フラグが明示的にあればそれを優先
       //   - 既存ユーザー（フラグなし）は name があれば登録済みとみなす（後方互換）
+      // v9.5.3 (2026-04-28)：name が "名無しのプレイヤー" のときは未登録扱いにする。
+      //   理由: ランキング表示側は「名無しのプレイヤー」を一律フィルタ除外するため、
+      //   登録済みフッターを出しても本人エントリが見つからず「あなたは X位」の旧表示に
+      //   フォールバックしてしまう（v9.5.2 の id 一致 fallback も filtered 後の配列で
+      //   照合されるためヒットしない）。当該状態は「名前未入力で記録する」を押した
+      //   旧バージョンの遺残で、未登録状態に戻すのが整合的。再度「記録する」で正式名を
+      //   入れれば通常の登録済みフローに復帰する。
       function isUserRegistered() {
         const data = loadMyBestEntry();
         if (!data) return false;
+        const nameTrim = (data.name && String(data.name).trim()) || "";
+        if (nameTrim === "名無しのプレイヤー") return false;
         if (data.registered !== undefined) return data.registered === true;
-        return !!(data.name && String(data.name).trim());
+        return !!nameTrim;
       }
 
       // ── Firestore ランキング保存 ────────────────────────────────────────
