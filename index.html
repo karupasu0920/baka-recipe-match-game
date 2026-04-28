@@ -5315,11 +5315,18 @@
               myEntry = normalOnly.find(e => e && e.id === mineRecord.id) || null;
             }
             if (!myEntry && mineRecord && mineRecord.name && mineRecord.name !== "名無しのプレイヤー") {
-              // v10.3 fix v6 (2026-04-28)：name 一致の UUID guard を緩和。
-              //   過去にサイトデータクリア等で UUID が変わったユーザーは、自身の TOP50 entry と
-              //   現 UUID が一致せず unlock 判定で漏れていた。name_uuid_binding 制度が
-              //   「同名 = 同一人物」を保証しているため、純粋な name 一致で安全。
-              myEntry = normalOnly.find(e => e && e.name === mineRecord.name) || null;
+              // v10.3 fix v7 (2026-04-28)：name 一致を binding 所有権でガード。
+              //   過去にサイトデータクリアして UUID が変わったユーザーでも、device-match-rebind で
+              //   binding が現 UUID を所有していれば、その名前の entry は自分のものと判定可能。
+              //   getMyEarnedTiers の snapshot grandfathering と完全に同じパターン。
+              //   無関係な人が同名を借りても binding 所有者でなければ漏れるので、
+              //   永続解放の暴発を防ぎつつ pre-UUID 正規ユーザーは救える。
+              try {
+                const binding = await getNameBinding(mineRecord.name);
+                if (binding && binding.uuid === myUuid) {
+                  myEntry = normalOnly.find(e => e && e.name === mineRecord.name) || null;
+                }
+              } catch (_) { /* binding 取得失敗は no match 扱い */ }
             }
             const myIdx = myEntry ? normalOnly.indexOf(myEntry) : -1;
             _uramodeTop50Cached = (myIdx >= 0 && myIdx < 50);
