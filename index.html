@@ -3475,6 +3475,8 @@
         userUuid: "bakaBadge_user_uuid",        // v9 (2026-04-27)：このブラウザ固有の UUID（バッジ識別の核）
         devMode: "bakaBadge_dev_mode",          // v9.6 (2026-04-27)：開発者モード（"true" で記録/カウントをスキップ）
         lastName: "bakaBadge_last_name",        // v9.5.1 (2026-04-28)：直近に「記録する」で入力した名前（次回結果画面でプリフィル用）
+        recordCount: "bakaBadge_record_count",  // v10.3 (2026-04-28)：「記録する」押下総回数（裏モード解放条件用）
+        uramodeOverride: "bakaBadge_uramode_override", // v10.3 (2026-04-28)：URAMODE_ENABLED 定数の DevTools 上書き
       };
       // v8 (2026-04-27)：以前 (v7) は 'bakaBadge_achieved_titles' に獲得済み tier 配列を保存していたが、
       //   ranking 配列上の自分のエントリのベストタイムから動的算出する方式に変更したため未使用化。
@@ -4172,6 +4174,82 @@
         const dev = isDevUser();
         console.log(`[DEV MODE] 現在: ${dev ? "ON ✅" : "OFF 🟢"}`);
         return dev;
+      };
+
+      // ── 裏モード機能フラグ + 解放判定（v10.3 / 2026-04-28） ────────────
+      //   裏モード（ダーク + スポットライト + ゴキブリ Move + 1.5倍速）の出し分け制御。
+      //   DevTools から admin helper で即時 ON/OFF できるよう、定数 + localStorage 上書き
+      //   の二段構造にしてある。不具合発覚時の緊急停止用。
+      //
+      //   ■ 解放条件（OR）
+      //     (a) 通常モードランキング TOP20 入り かつ recordCount >= 10
+      //     (b) 全 10 tier コンプ
+      //     (c) dev mode（強制解放）
+      //
+      //   ■ admin helpers（DevTools コンソール）
+      //     __setUramodeEnabled(true)  → 全体 ON
+      //     __setUramodeEnabled(false) → 全体 OFF（緊急停止）
+      //     __setUramodeEnabled(null)  → 上書きクリア（URAMODE_ENABLED 定数値に戻る）
+      //     __isUramodeEnabled()       → 現在の有効状態
+      //     __isUramodeUnlocked()      → 自分が今アンロックされてるか
+      //
+      const URAMODE_ENABLED = true;  // 緊急停止したい場合は false に書き換えて push（コード変更）
+      function isUramodeFlagEnabled() {
+        // localStorage 上書きが優先（DevTools での即時切替用）
+        const ovr = lsGet(LS_KEYS.uramodeOverride);
+        if (ovr === "true")  return true;
+        if (ovr === "false") return false;
+        return URAMODE_ENABLED === true;
+      }
+      function getRecordCount() {
+        try {
+          const v = parseInt(lsGet(LS_KEYS.recordCount) || "0", 10);
+          return Number.isFinite(v) && v >= 0 ? v : 0;
+        } catch (_) { return 0; }
+      }
+      function incrementRecordCount() {
+        const next = getRecordCount() + 1;
+        try { lsSet(LS_KEYS.recordCount, String(next)); } catch (_) {}
+        return next;
+      }
+      // renderStartRanking() が cache 更新時にここへ「自分が TOP20 入り？」を書く（Phase 8 で連携）。
+      // null = 未判定（fetch 前 or fetch 失敗）、true/false = 判定済。
+      let _uramodeTop20Cached = null;
+      async function isUramodeUnlocked() {
+        if (!isUramodeFlagEnabled()) return false;
+        if (isDevUser()) return true;  // dev は無条件解放
+        // (b) 全コンプ
+        try {
+          const earned = await getMyEarnedTiers();
+          if (earned && earned.size >= 10) return true;
+        } catch (_) { /* 失敗時は他経路で判定 */ }
+        // (a) TOP20 入り && recordCount >= 10
+        if (getRecordCount() < 10) return false;
+        return _uramodeTop20Cached === true;
+      }
+      window.__setUramodeEnabled = function (enabled) {
+        if (enabled === true) {
+          lsSet(LS_KEYS.uramodeOverride, "true");
+          console.log("✅ [URA MODE] 全体 ON（上書き）");
+        } else if (enabled === false) {
+          lsSet(LS_KEYS.uramodeOverride, "false");
+          console.log("🛑 [URA MODE] 全体 OFF（上書き・緊急停止）");
+        } else {
+          // null/undefined → 上書きクリア
+          lsSet(LS_KEYS.uramodeOverride, "");
+          console.log(`🔄 [URA MODE] 上書きクリア → 定数値 ${URAMODE_ENABLED ? "ON" : "OFF"} に戻りました`);
+        }
+        return isUramodeFlagEnabled();
+      };
+      window.__isUramodeEnabled = function () {
+        const v = isUramodeFlagEnabled();
+        console.log(`[URA MODE] 機能フラグ: ${v ? "ON ✅" : "OFF 🛑"}（定数=${URAMODE_ENABLED}）`);
+        return v;
+      };
+      window.__isUramodeUnlocked = async function () {
+        const u = await isUramodeUnlocked();
+        console.log(`[URA MODE] 自分のアンロック状態: ${u ? "解放 ✅" : "ロック中 🔒"}`);
+        return u;
       };
 
       // ── 自分のベスト記録 1 件を localStorage に保持（ページをまたいでもハイライト／順位表示に使う） ──
@@ -6659,6 +6737,9 @@
         });
         // Firestoreにも保存（fire-and-forget）
         saveRankingCloud(entry);
+        // v10.3 (2026-04-28)：裏モード解放条件用の「記録する」押下カウント。dev mode は早期 return で
+        //   ここまで来ないので、テストプレイで偽カウントが膨らむことは無い。
+        incrementRecordCount();
         // v8 (2026-04-27)：v7 で入れた Achievements.recordEarned (localStorage 保存) は廃止。
         //   バッジは ranking 配列上の自分のエントリ time から動的算出するため、ここで保存する必要は無い。
         //   localStorage の残骸（旧 'bakaBadge_achieved_titles'）は read していないので無視される。
