@@ -7163,11 +7163,11 @@
             return;
           }
           const elapsed = (now - _uramodeRoamState.startTime) / 1000;
-          // v10.3 fix v4 (2026-04-28)：加速をゆるやかに（傾き 0.07 → 0.05）。
-          //   初期倍率 1.5x、傾き 0.05/秒、上限 3.5（40 秒で cap 到達）
-          //   45 秒ゲームの終盤でも余裕を残す穏やかな加速カーブ。
-          //   ランダムウォーク ±0.12（生命感アップ）
-          const speedMul = Math.min(3.5, 1.5 + elapsed * 0.05);
+          // v10.3 fix v10 (2026-04-29)：難易度緩和（クリア可能性を担保するため案 B 適用）。
+          //   初期倍率 1.1x、傾き 0.03/秒、上限 2.0（30 秒で cap 到達）
+          //   ランダムウォーク ±0.08（v9 の ±0.12 から減らして予測しやすく）
+          //   通常モードよりは難しいが、慣れれば一般プレイヤーでもクリア可能なライン。
+          const speedMul = Math.min(2.0, 1.1 + elapsed * 0.03);
           const boardW = boardEl.clientWidth;
           const boardH = boardEl.clientHeight;
           const margin = cardSize / 2;
@@ -7176,8 +7176,8 @@
             // matched / shaking 中は位置固定
             if (c.el.classList.contains('matched') || c.el.classList.contains('shaking')) return;
             // ランダムウォーク（生命感）
-            c.vx += (Math.random() - 0.5) * 0.12;
-            c.vy += (Math.random() - 0.5) * 0.12;
+            c.vx += (Math.random() - 0.5) * 0.08;
+            c.vy += (Math.random() - 0.5) * 0.08;
             // 速度上限
             const maxV = 2.2;
             if (c.vx >  maxV) c.vx =  maxV;
@@ -7213,7 +7213,8 @@
       //   - on=false で完全リセット（fps=8 / rate=1.0）
       //   通常モード起動時は applyUramodeSpeed(false) でリセットされるため、退行不可。
       function applyUramodeSpeed(on) {
-        const URA_MUL = 1.5;
+        // v10.3 fix v10 (2026-04-29)：1.5x → 1.25x（クリア可能性担保のため案 B 適用）
+        const URA_MUL = 1.25;
         try {
           if (danceCharacter) {
             const newFps = on ? 8 * URA_MUL : 8;
