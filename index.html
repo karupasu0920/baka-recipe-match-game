@@ -2949,6 +2949,50 @@
         text-shadow: 0 0 6px #cc0000;
       }
 
+      /* ── 裏モード スポットライト v10.3 Phase 5 (2026-04-28) ─────────
+         - カードより上のレイヤー（z-index 50）に配置
+         - mask-image で円形だけ透明化 → 円内のカードは元のまま、円外は半透明黒で覆われ薄暗く
+         - @property で --uspot-x/y を percentage として登録 → keyframes が補間可能（iOS 16.4+）
+         - タップで JS が --uspot-x/y を上書き + animation-play-state: paused で停止
+         - 1.5 秒後に inline 解除して通常軌道復帰
+         ─────────────────────────────────────────────────────────── */
+      @property --uspot-x { syntax: '<percentage>'; inherits: false; initial-value: 50%; }
+      @property --uspot-y { syntax: '<percentage>'; inherits: false; initial-value: 30%; }
+
+      #uramodeSpotlight {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        pointer-events: none;
+        background: rgba(0, 0, 0, 0.6);
+        /* 円の中は透過 → カード見える / 円の外は不透明 → 上で塗られた半透明黒が見える */
+        -webkit-mask-image: radial-gradient(
+          circle 125px at var(--uspot-x) var(--uspot-y),
+          transparent 0%,
+          transparent 60%,
+          black 100%
+        );
+        mask-image: radial-gradient(
+          circle 125px at var(--uspot-x) var(--uspot-y),
+          transparent 0%,
+          transparent 60%,
+          black 100%
+        );
+        animation: uramode-spotlight-orbit 8s ease-in-out infinite alternate;
+        transition: --uspot-x 0.4s ease-out, --uspot-y 0.4s ease-out;
+      }
+      body[data-mode="ura"] #uramodeSpotlight { display: block; }
+
+      @keyframes uramode-spotlight-orbit {
+        0%   { --uspot-x: 30%; --uspot-y: 22%; }
+        20%  { --uspot-x: 70%; --uspot-y: 20%; }
+        40%  { --uspot-x: 78%; --uspot-y: 50%; }
+        60%  { --uspot-x: 50%; --uspot-y: 65%; }
+        80%  { --uspot-x: 22%; --uspot-y: 50%; }
+        100% { --uspot-x: 50%; --uspot-y: 30%; }
+      }
+
     </style>
   </head>
   <body data-screen="start">
@@ -3036,6 +3080,9 @@
         <!-- v10.3 (2026-04-28)：裏モード時のみ表示される大見出し（CSS で body[data-mode="ura"] 連動）。
              通常モードでは display:none で完全非表示。 -->
         <div id="uramodeHeading" aria-hidden="true">裏モード</div>
+        <!-- v10.3 Phase 5 (2026-04-28)：スポットライト演出用オーバーレイ。
+             body[data-mode="ura"] 時のみ display:block。タップで JS が一時追従。 -->
+        <div id="uramodeSpotlight" aria-hidden="true"></div>
         <!-- 🐱 ダンスキャラクター「マャーちゃん」（背景の上、バッジの下） -->
         <div class="dance-character is-paused" aria-hidden="true"></div>
         <div id="timer" class="timer">45.00</div>
@@ -6934,6 +6981,37 @@
       function startUramode() {
         setupAndStart("ura", { seekBgmToStart: true });
       }
+
+      // v10.3 Phase 5 (2026-04-28)：スポットライトのタップ追従。
+      //   gameScreen でのタップ位置に対し、--uspot-x/y を %（viewport 比）で上書き。
+      //   軌道 animation を一時停止 → 1.5 秒後に inline スタイルを解除して通常軌道に復帰。
+      //   gameMode === "ura" 以外では即 return（通常モードに影響ゼロ）。
+      let _uramodeSpotResumeTimer = null;
+      function attachUramodeSpotlightTapFollow() {
+        const screen = document.getElementById('gameScreen');
+        if (!screen) return;
+        screen.addEventListener('pointerdown', (e) => {
+          if (gameMode !== 'ura') return;
+          const sp = document.getElementById('uramodeSpotlight');
+          if (!sp) return;
+          const xPct = (e.clientX / window.innerWidth)  * 100;
+          const yPct = (e.clientY / window.innerHeight) * 100;
+          sp.style.animationPlayState = 'paused';
+          sp.style.setProperty('--uspot-x', `${xPct.toFixed(2)}%`);
+          sp.style.setProperty('--uspot-y', `${yPct.toFixed(2)}%`);
+          if (_uramodeSpotResumeTimer) clearTimeout(_uramodeSpotResumeTimer);
+          _uramodeSpotResumeTimer = setTimeout(() => {
+            sp.style.animationPlayState = '';
+            sp.style.removeProperty('--uspot-x');
+            sp.style.removeProperty('--uspot-y');
+            _uramodeSpotResumeTimer = null;
+          }, 1500);
+        }, { passive: true });
+      }
+      // 起動時に 1 度だけ登録（イディオム）。listener 自体は常に存在するが gameMode === 'ura' 以外は早期 return。
+      document.addEventListener('DOMContentLoaded', () => {
+        attachUramodeSpotlightTapFollow();
+      });
 
       function startDaily() {
         const played = lsGet(LS_KEYS.dailyPlayedDate);
