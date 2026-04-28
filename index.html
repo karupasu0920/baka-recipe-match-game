@@ -4592,30 +4592,32 @@
         }
       };
 
-      // v9.5 (2026-04-27)：バッジ用スナップショット作成 admin helper（一回限り実行用）
+      // v9.5 (2026-04-27 / 2026-04-28 更新)：バッジ用スナップショット作成 admin helper（一回限り実行用）
       //   F12 コンソールから手動実行する。dry-run でプレビュー → 本実行の二段構え。
       //
       //   使い方:
       //     await __createBadgeSnapshot({ dryRun: true });   // プレビュー（書き込みなし）
-      //     await __createBadgeSnapshot();                    // 本実行（top 130 を snapshot に書き込み）
+      //     await __createBadgeSnapshot();                    // 本実行（top 200 を snapshot に書き込み）
       //
       //   挙動:
       //     1. rankings から time 昇順で fetch（必要なら複数バッチ）
       //     2. 名無し除外 + getEntryUniqueKey（name+rank+device）で dedup（UI と同一ロジック）
-      //     3. 上位 130 件を取得（現状ユニーク 118 名 + 余裕 12 名分）
+      //     3. 上位 200 件を取得
+      //        （4/28 時点で unique 121 名。4/29 開幕までの増加と「ボーダー上の人が漏れる」リスクを
+      //          避けるため余裕を持って 200 件に拡大。データ量・コスト増は微小）
       //     4. dryRun=false なら ranking_snapshot_pre_v9_5 に各 entry をコピー（doc id = 元 entry.id）
       //     5. 各 entry に _snapshotAt フィールド付与（ISO タイムスタンプ）
       //
-      //   コスト: read ~130-300 doc + write 130 doc ≈ ¥0.0003 程度
+      //   コスト: read ~200-400 doc + write 最大 200 doc ≈ ¥0.0005 程度
       //   再実行: doc id 同じなら上書き（べき等）
       window.__createBadgeSnapshot = async function ({ dryRun = false } = {}) {
-        const TARGET_UNIQUE = 130;
+        const TARGET_UNIQUE = 200;
         const FETCH_BATCH = 100;
         const MAX_FETCH = 3000;
         const SNAPSHOT_COLLECTION = "ranking_snapshot_pre_v9_5";
 
         // v9.6 (2026-04-27)：実行コスト警告。誤実行で Firestore reads を浪費しないよう注意喚起。
-        console.warn(`⚠️ __createBadgeSnapshot(): rankings から最大 ${MAX_FETCH} doc 読む可能性あり（通常 130〜300 reads）${dryRun ? "。DRY-RUN のため書き込みはスキップ。" : "。本実行：snapshot コレクションに 130 件書き込み。"}`);
+        console.warn(`⚠️ __createBadgeSnapshot(): rankings から最大 ${MAX_FETCH} doc 読む可能性あり（通常 200〜400 reads）${dryRun ? "。DRY-RUN のため書き込みはスキップ。" : "。本実行：snapshot コレクションに最大 200 件書き込み。"}`);
         console.group(`📸 v9.5 バッジスナップショット作成 ${dryRun ? "[DRY-RUN]" : "[本実行]"}`);
         try {
           // ── Step 1: fetch loop ──────────────────────────────────────
