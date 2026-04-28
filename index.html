@@ -3653,7 +3653,7 @@
       //   - 不一致なら静かにフルリロード（クエリ ?v=<ts> でキャッシュ強制バイパス）
       //   - ゲーム中（gameRunning / lockInput / pendingSave）は reload しない
       //   ※ デプロイ手順：APP_VERSION と version.json の両方を同じ値に更新して push
-      const APP_VERSION = "v12";
+      const APP_VERSION = "v13";
       async function checkForAppUpdate() {
         // ゲーム中・記録未送信・入力ロック中は reload しない
         try {
