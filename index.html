@@ -2524,6 +2524,16 @@
         color: #ffe47a;
         margin-left: 6px;
       }
+      /* レガシーランク「ごつ盛り焼きそばマスター」の冒頭 ⭐ を画像に置き換える専用アイコン。
+         em サイズで前後テキストの行高に追従し、他のランキング/UIには影響しない。 */
+      .rank-icon {
+        display: inline-block;
+        width: 1em;
+        height: 1em;
+        vertical-align: -0.18em;
+        object-fit: contain;
+        margin-right: 0.08em;
+      }
       .ranking-full-list li .r-time {
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
@@ -3652,7 +3662,7 @@
       //   - 不一致なら静かにフルリロード（クエリ ?v=<ts> でキャッシュ強制バイパス）
       //   - ゲーム中（gameRunning / lockInput / pendingSave）は reload しない
       //   ※ デプロイ手順：APP_VERSION と version.json の両方を同じ値に更新して push
-      const APP_VERSION = "v16";
+      const APP_VERSION = "v17";
       async function checkForAppUpdate() {
         // ゲーム中・記録未送信・入力ロック中は reload しない
         try {
@@ -5344,7 +5354,7 @@
         const uraIcon = entry.mode === "ura" ? "🎭 " : "";
         li.innerHTML =
           `<span>${medal} ${uraIcon}${entry.name}${deviceMark}</span>` +
-          `<span style="flex:1;text-align:center;font-size:0.88em;color:#ffe47a;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">【${entryRank}】</span>` +
+          `<span style="flex:1;text-align:center;font-size:0.88em;color:#ffe47a;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">【${formatRankHtml(entryRank)}】</span>` +
           `<span style="white-space:nowrap;">${entry.time.toFixed(2)}秒</span>`;
         return li;
       }
@@ -5494,7 +5504,7 @@
           : "";
         li.innerHTML =
           `<span class="r-pos">${posLabel}</span>` +
-          `<span class="r-main">${uraIcon}${escapeHtml(entry.name || "")}${deviceMark}<span class="r-rank">【${escapeHtml(entryRank)}】</span></span>` +
+          `<span class="r-main">${uraIcon}${escapeHtml(entry.name || "")}${deviceMark}<span class="r-rank">【${formatRankHtml(entryRank)}】</span></span>` +
           `<span class="r-time">${entry.time.toFixed(2)}秒</span>`;
         return li;
       }
@@ -5643,6 +5653,20 @@
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;")
           .replace(/'/g, "&#39;");
+      }
+
+      // レガシーランク「⭐ ごつ盛り焼きそばマスター」の冒頭 ⭐ を gotsumori.png に差し替えて HTML を返す。
+      // 非依存の indexOf+slice で実装（バリエーションセレクタ等で正規表現が外れる事故を回避）。
+      // それ以外のランクは escapeHtml した文字列をそのまま返す（ピンポイント置換、他のランクに影響なし）。
+      function formatRankHtml(rankStr) {
+        const s = String(rankStr || "");
+        const KEY = "ごつ盛り焼きそばマスター";
+        const idx = s.indexOf(KEY);
+        if (idx >= 0) {
+          // 「ごつ盛り…」より前を全部捨てて画像に置き換える（先頭の⭐や ︎ や空白の組合せを問わない）
+          return '<img class="rank-icon" src="assets/gotsumori.png" alt="ごつ盛り">' + escapeHtml(s.slice(idx));
+        }
+        return escapeHtml(s);
       }
 
       // 現在の rankingAllLoaded を listEl へ描画し、ステータスを更新して filtered を返す。
