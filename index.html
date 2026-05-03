@@ -3662,7 +3662,7 @@
       //   - 不一致なら静かにフルリロード（クエリ ?v=<ts> でキャッシュ強制バイパス）
       //   - ゲーム中（gameRunning / lockInput / pendingSave）は reload しない
       //   ※ デプロイ手順：APP_VERSION と version.json の両方を同じ値に更新して push
-      const APP_VERSION = "v17";
+      const APP_VERSION = "v18";
       async function checkForAppUpdate() {
         // ゲーム中・記録未送信・入力ロック中は reload しない
         try {
@@ -5656,15 +5656,18 @@
       }
 
       // レガシーランク「⭐ ごつ盛り焼きそばマスター」の冒頭 ⭐ を gotsumori.png に差し替えて HTML を返す。
-      // 非依存の indexOf+slice で実装（バリエーションセレクタ等で正規表現が外れる事故を回避）。
+      // 一部の Firebase 既存レコードに U+FE0E（バリエーションセレクタ）等の不可視文字が
+      // 「り」と「焼」の間に挟まっているケースがあるため、比較前に不可視文字を除去する。
       // それ以外のランクは escapeHtml した文字列をそのまま返す（ピンポイント置換、他のランクに影響なし）。
       function formatRankHtml(rankStr) {
         const s = String(rankStr || "");
+        // U+200B-200F (ゼロ幅系) と U+FE00-FE0F (バリエーションセレクタ) を除去
+        // 例: 「ごつ盛り[U+FE0E]焼きそばマスター」のように見えない文字が挟まっていてもマッチ
+        const normalized = s.replace(/[​-\u200F︀-️]/g, '');
         const KEY = "ごつ盛り焼きそばマスター";
-        const idx = s.indexOf(KEY);
+        const idx = normalized.indexOf(KEY);
         if (idx >= 0) {
-          // 「ごつ盛り…」より前を全部捨てて画像に置き換える（先頭の⭐や ︎ や空白の組合せを問わない）
-          return '<img class="rank-icon" src="assets/gotsumori.png" alt="ごつ盛り">' + escapeHtml(s.slice(idx));
+          return '<img class="rank-icon" src="assets/gotsumori.png" alt="ごつ盛り">' + escapeHtml(normalized.slice(idx));
         }
         return escapeHtml(s);
       }
