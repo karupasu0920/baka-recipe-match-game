@@ -2525,14 +2525,15 @@
         margin-left: 6px;
       }
       /* レガシーランク「ごつ盛り焼きそばマスター」の冒頭 ⭐ を画像に置き換える専用アイコン。
-         em サイズで前後テキストの行高に追従し、他のランキング/UIには影響しない。 */
+         em サイズ（2em）でテキストの約2倍。上下のネガティブマージンで line-height への影響を相殺し、
+         行の高さを拡げないので周囲のレイアウトに影響しない。 */
       .rank-icon {
         display: inline-block;
-        width: 1em;
-        height: 1em;
-        vertical-align: -0.18em;
+        width: 2em;
+        height: 2em;
+        vertical-align: middle;
         object-fit: contain;
-        margin-right: 0.08em;
+        margin: -0.5em 0.15em -0.5em 0;
       }
       .ranking-full-list li .r-time {
         font-variant-numeric: tabular-nums;
@@ -3662,7 +3663,7 @@
       //   - 不一致なら静かにフルリロード（クエリ ?v=<ts> でキャッシュ強制バイパス）
       //   - ゲーム中（gameRunning / lockInput / pendingSave）は reload しない
       //   ※ デプロイ手順：APP_VERSION と version.json の両方を同じ値に更新して push
-      const APP_VERSION = "v18";
+      const APP_VERSION = "v19";
       async function checkForAppUpdate() {
         // ゲーム中・記録未送信・入力ロック中は reload しない
         try {
